@@ -84,7 +84,6 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       setState(() => _isLoadingFavorites = false);
     }
   }
-
   // Load properties from API with search filters
   Future<void> _loadProperties() async {
     setState(() => _isLoadingProperties = true);
