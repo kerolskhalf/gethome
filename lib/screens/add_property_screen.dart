@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/user_session.dart';
 
 class AddPropertyScreen extends StatefulWidget {
   final Map<String, dynamic>? propertyToEdit;
@@ -21,18 +22,21 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
   String? _selectedImagePath;
 
   // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://getawayanapp.runasp.net';
+  static const String API_BASE_URL = 'https://gethome.runasp.net';
 
   // Form controllers matching the API schema
   late final TextEditingController _sizeController;
   late final TextEditingController _bedroomsController;
   late final TextEditingController _bathroomsController;
+  late final TextEditingController _totalRoomsController;
   late final TextEditingController _regionController;
   late final TextEditingController _cityController;
   late final TextEditingController _priceController;
+  late final TextEditingController _pricePerM2Controller;
 
   late String _houseType;
   late int _status;
+  late bool _isHighFloor;
   late int _userId; // You'll need to get this from your authentication system
 
   @override
@@ -42,16 +46,19 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     _sizeController = TextEditingController(text: widget.propertyToEdit?['size']?.toString() ?? '');
     _bedroomsController = TextEditingController(text: widget.propertyToEdit?['bedrooms']?.toString() ?? '');
     _bathroomsController = TextEditingController(text: widget.propertyToEdit?['bathrooms']?.toString() ?? '');
+    _totalRoomsController = TextEditingController(text: widget.propertyToEdit?['totalRooms']?.toString() ?? '');
     _regionController = TextEditingController(text: widget.propertyToEdit?['region'] ?? '');
     _cityController = TextEditingController(text: widget.propertyToEdit?['city'] ?? '');
     _priceController = TextEditingController(text: widget.propertyToEdit?['price']?.toString() ?? '');
+    _pricePerM2Controller = TextEditingController(text: widget.propertyToEdit?['pricePerM2']?.toString() ?? '');
 
     _houseType = widget.propertyToEdit?['houseType'] ?? 'Apartment';
     _status = widget.propertyToEdit?['status'] ?? 0; // 0 = Available, 1 = Sold, etc.
+    _isHighFloor = widget.propertyToEdit?['isHighFloor'] ?? false;
     _selectedImagePath = widget.propertyToEdit?['imagePath'];
 
-    // TODO: Get actual user ID from your authentication system
-    _userId = 1; // This should come from your logged-in user data
+    // Get actual user ID from authentication system
+    _userId = UserSession.getCurrentUserId();
   }
 
   @override
@@ -59,9 +66,11 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     _sizeController.dispose();
     _bedroomsController.dispose();
     _bathroomsController.dispose();
+    _totalRoomsController.dispose();
     _regionController.dispose();
     _cityController.dispose();
     _priceController.dispose();
+    _pricePerM2Controller.dispose();
     super.dispose();
   }
 
@@ -115,6 +124,20 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     return null;
   }
 
+  String? _validateTotalRooms(String? value) {
+    if (value?.isEmpty ?? true) {
+      return null; // Optional field
+    }
+    final totalRooms = int.tryParse(value!);
+    if (totalRooms == null || totalRooms < 0) {
+      return 'Please enter a valid number of total rooms';
+    }
+    if (totalRooms > 50) {
+      return 'Number of total rooms seems too high';
+    }
+    return null;
+  }
+
   String? _validatePrice(String? value) {
     if (value?.isEmpty ?? true) {
       return 'Price is required';
@@ -129,11 +152,32 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     return null;
   }
 
+  String? _validatePricePerM2(String? value) {
+    if (value?.isEmpty ?? true) {
+      return null; // Optional field
+    }
+    final pricePerM2 = double.tryParse(value!);
+    if (pricePerM2 == null || pricePerM2 <= 0) {
+      return 'Please enter a valid price per m²';
+    }
+    return null;
+  }
+
   String? _validateImage() {
     if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
       return 'Property image is required';
     }
     return null;
+  }
+
+  void _calculatePricePerM2() {
+    final price = double.tryParse(_priceController.text);
+    final size = int.tryParse(_sizeController.text);
+
+    if (price != null && size != null && size > 0) {
+      final pricePerM2 = price / size;
+      _pricePerM2Controller.text = pricePerM2.toStringAsFixed(2);
+    }
   }
 
   Future<void> _pickImage() async {
@@ -168,8 +212,14 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
 
     try {
       // Create multipart request
-      final uri = Uri.parse('$API_BASE_URL/api/properties/add');
-      final request = http.MultipartRequest('POST', uri);
+      final uri = widget.propertyToEdit != null
+          ? Uri.parse('$API_BASE_URL/api/properties/update/${widget.propertyToEdit!['id']}')
+          : Uri.parse('$API_BASE_URL/api/properties/add');
+
+      final request = http.MultipartRequest(
+          widget.propertyToEdit != null ? 'PUT' : 'POST',
+          uri
+      );
 
       // Add headers
       request.headers.addAll({
@@ -178,9 +228,13 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
         // 'Authorization': 'Bearer $your_token_here',
       });
 
+      // Calculate price per m² if not provided
+      if (_pricePerM2Controller.text.isEmpty) {
+        _calculatePricePerM2();
+      }
+
       // Add form fields
-      request.fields.addAll({
-        'UserId': _userId.toString(),
+      Map<String, String> fields = {
         'HouseType': _houseType,
         'Size': _sizeController.text.trim(),
         'Bedrooms': _bedroomsController.text.trim(),
@@ -189,7 +243,23 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
         'Region': _regionController.text.trim(),
         'City': _cityController.text.trim(),
         'Price': _priceController.text.trim(),
-      });
+        'IsHighFloor': _isHighFloor.toString(),
+      };
+
+      // Add UserId only for new properties
+      if (widget.propertyToEdit == null) {
+        fields['UserId'] = _userId.toString();
+      }
+
+      // Add optional fields if they have values
+      if (_totalRoomsController.text.isNotEmpty) {
+        fields['TotalRooms'] = _totalRoomsController.text.trim();
+      }
+      if (_pricePerM2Controller.text.isNotEmpty) {
+        fields['PricePerM2'] = _pricePerM2Controller.text.trim();
+      }
+
+      request.fields.addAll(fields);
 
       // Add image file
       if (_selectedImagePath != null) {
@@ -218,7 +288,10 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Success
-        _showSuccessMessage('Property added successfully!');
+        final successMessage = widget.propertyToEdit != null
+            ? 'Property updated successfully!'
+            : 'Property added successfully!';
+        _showSuccessMessage(successMessage);
 
         // Parse response if needed
         try {
@@ -458,6 +531,7 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
               label: 'Size (m²) *',
               keyboardType: TextInputType.number,
               validator: _validateSize,
+              onChanged: (value) => _calculatePricePerM2(),
             ),
             const SizedBox(height: 16),
 
@@ -485,32 +559,68 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
             ),
             const SizedBox(height: 16),
 
+            // Total Rooms (Optional)
+            _buildTextField(
+              controller: _totalRoomsController,
+              label: 'Total Rooms',
+              keyboardType: TextInputType.number,
+              validator: _validateTotalRooms,
+            ),
+            const SizedBox(height: 16),
+
+            // Is High Floor Toggle
+            _buildHighFloorToggle(),
+            const SizedBox(height: 16),
+
             // Status Dropdown
             _buildStatusDropdown(),
             const SizedBox(height: 16),
 
-            // Region (Required)
-            _buildTextField(
-              controller: _regionController,
-              label: 'Region *',
-              validator: (value) => _validateRequired(value, 'Region'),
+            // Region and City Row (Both Required)
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(
+                    controller: _regionController,
+                    label: 'Region *',
+                    validator: (value) => _validateRequired(value, 'Region'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildTextField(
+                    controller: _cityController,
+                    label: 'City *',
+                    validator: (value) => _validateRequired(value, 'City'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
 
-            // City (Required)
-            _buildTextField(
-              controller: _cityController,
-              label: 'City *',
-              validator: (value) => _validateRequired(value, 'City'),
-            ),
-            const SizedBox(height: 16),
-
-            // Price (Required)
-            _buildTextField(
-              controller: _priceController,
-              label: 'Price (\$) *',
-              keyboardType: TextInputType.number,
-              validator: _validatePrice,
+            // Price and Price per M² Row
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(
+                    controller: _priceController,
+                    label: 'Price (\$) *',
+                    keyboardType: TextInputType.number,
+                    validator: _validatePrice,
+                    onChanged: (value) => _calculatePricePerM2(),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildTextField(
+                    controller: _pricePerM2Controller,
+                    label: 'Price per m² (\$)',
+                    keyboardType: TextInputType.number,
+                    validator: _validatePricePerM2,
+                    readOnly: true,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 24),
 
@@ -528,6 +638,8 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     int maxLines = 1,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    void Function(String)? onChanged,
+    bool readOnly = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -545,10 +657,16 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
           maxLines: maxLines,
           keyboardType: keyboardType,
           validator: validator,
-          style: const TextStyle(color: Colors.white),
+          onChanged: onChanged,
+          readOnly: readOnly,
+          style: TextStyle(
+            color: readOnly ? Colors.white.withOpacity(0.6) : Colors.white,
+          ),
           decoration: InputDecoration(
             filled: true,
-            fillColor: Colors.white.withOpacity(0.1),
+            fillColor: readOnly
+                ? Colors.white.withOpacity(0.05)
+                : Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
@@ -617,6 +735,31 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
               },
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHighFloorToggle() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'High Floor',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.8),
+            fontSize: 14,
+          ),
+        ),
+        Switch(
+          value: _isHighFloor,
+          onChanged: (value) {
+            setState(() {
+              _isHighFloor = value;
+            });
+          },
+          activeColor: Colors.white,
+          activeTrackColor: Colors.blue.withOpacity(0.5),
         ),
       ],
     );

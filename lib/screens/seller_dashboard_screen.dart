@@ -1,8 +1,12 @@
 // lib/screens/seller_dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
+import '../utils/user_session.dart';
+import 'login_screen.dart';
 
 class SellerDashboardScreen extends StatefulWidget {
   const SellerDashboardScreen({Key? key}) : super(key: key);
@@ -12,7 +16,55 @@ class SellerDashboardScreen extends StatefulWidget {
 }
 
 class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
-  final List<Map<String, dynamic>> _properties = [];
+  // API Configuration
+  static const String API_BASE_URL = 'https://gethome.runasp.net';
+
+  // User ID from authentication
+  int get currentUserId => UserSession.getCurrentUserId();
+
+  // Data and loading states
+  List<Map<String, dynamic>> _properties = [];
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProperties();
+  }
+
+  // Load user's properties from API
+  Future<void> _loadUserProperties() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.get(
+        Uri.parse('$API_BASE_URL/api/properties/user/$currentUserId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _properties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+          _errorMessage = null;
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'Failed to load properties';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Network error: $e';
+      });
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
 
   void _addNewProperty() async {
     final result = await Navigator.push(
@@ -21,22 +73,137 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     );
 
     if (result != null && mounted) {
-      setState(() {
-        _properties.add(result as Map<String, dynamic>);
-      });
+      // Reload properties from server to get the latest data
+      _loadUserProperties();
     }
+  }
+
+  void _handleLogout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Logout',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Are you sure you want to logout, ${UserSession.getCurrentUserName()}?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              // Clear user session
+              UserSession.clearSession();
+
+              // Navigate to login screen and remove all previous routes
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+              );
+            },
+            child: const Text(
+              'Logout',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _editProperty(int index, Map<String, dynamic> updatedProperty) {
     setState(() {
       _properties[index] = updatedProperty;
     });
+    // Optionally reload from server to ensure consistency
+    _loadUserProperties();
   }
 
-  void _deleteProperty(int index) {
-    setState(() {
-      _properties.removeAt(index);
-    });
+  Future<void> _deleteProperty(int propertyId, int index) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$API_BASE_URL/api/properties/delete/$propertyId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _properties.removeAt(index);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Property deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete property: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting property: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _confirmDeleteProperty(int propertyId, int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Delete Property',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this property? This action cannot be undone.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteProperty(propertyId, index);
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _navigateToPropertyDetails(int index) {
@@ -46,10 +213,43 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
         builder: (context) => PropertyDetailsScreenSeller(
           property: _properties[index],
           onEdit: (updatedProperty) => _editProperty(index, updatedProperty),
-          onDelete: () => _deleteProperty(index),
+          onDelete: () => _confirmDeleteProperty(
+              _properties[index]['id'],
+              index
+          ),
         ),
       ),
     );
+  }
+
+  String _getStatusText(int status) {
+    switch (status) {
+      case 0:
+        return 'Available';
+      case 1:
+        return 'Sold';
+      case 2:
+        return 'Rented';
+      case 3:
+        return 'Pending';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Color _getStatusColor(int status) {
+    switch (status) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.red;
+      case 2:
+        return Colors.blue;
+      case 3:
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
   }
 
   @override
@@ -72,18 +272,33 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           child: Column(
             children: [
               _buildAppBar(),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: _buildAddPropertyButton(),
-              ),
-              Expanded(
-                child: _properties.isEmpty
-                    ? _buildEmptyState()
-                    : _buildPropertiesList(),
-              ),
+              if (_isLoading)
+                const Expanded(
+                  child: Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                )
+              else if (_errorMessage != null)
+                _buildErrorState()
+              else ...[
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: _buildAddPropertyButton(),
+                  ),
+                  Expanded(
+                    child: _properties.isEmpty
+                        ? _buildEmptyState()
+                        : _buildPropertiesList(),
+                  ),
+                ],
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _loadUserProperties,
+        backgroundColor: Colors.white.withOpacity(0.2),
+        child: const Icon(Icons.refresh, color: Colors.white),
       ),
     );
   }
@@ -101,40 +316,42 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
       ),
       child: Row(
         children: [
-          // Add back button
-          IconButton(
-            icon: const Icon(
-              Icons.arrow_back,
-              color: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 8),  // Add some spacing
-
           CircleAvatar(
             backgroundColor: Colors.white.withOpacity(0.2),
             child: const Icon(Icons.person, color: Colors.white),
           ),
           const SizedBox(width: 16),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Seller Dashboard',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Welcome, ${UserSession.getCurrentUserName()}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Text(
-                'Manage your properties',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
+                Text(
+                  'Manage your ${_properties.length} properties',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _loadUserProperties,
+            tooltip: 'Refresh Properties',
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: _handleLogout,
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -177,6 +394,43 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     );
   }
 
+  Widget _buildErrorState() {
+    return Expanded(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.white.withOpacity(0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 18,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadUserProperties,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white.withOpacity(0.2),
+              ),
+              child: const Text(
+                'Retry',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -202,6 +456,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               color: Colors.white.withOpacity(0.6),
               fontSize: 14,
             ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -228,18 +483,60 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Property Image
-                  if (property['imagePath'] != null)
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(20),
-                      ),
-                      child: Image.file(
-                        File(property['imagePath']),
+                  Stack(
+                    children: [
+                      Container(
                         height: 200,
                         width: double.infinity,
-                        fit: BoxFit.cover,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(20),
+                          ),
+                        ),
+                        child: property['imagePath'] != null &&
+                            property['imagePath'].isNotEmpty
+                            ? ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(20),
+                          ),
+                          child: Image.file(
+                            File(property['imagePath']),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          ),
+                        )
+                            : const Center(
+                          child: Icon(Icons.home,
+                              size: 50, color: Colors.grey),
+                        ),
                       ),
-                    ),
+                      // Status badge
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(property['status'] ?? 0)
+                                .withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _getStatusText(property['status'] ?? 0),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
 
                   // Property Details
                   Padding(
@@ -250,36 +547,39 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              property['title'] ?? '',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Text(
-                                'For Sale',
-                                style: TextStyle(
+                            Expanded(
+                              child: Text(
+                                property['houseType'] ?? 'Property',
+                                style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 12,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
+                            if (property['isHighFloor'] == true)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'High Floor',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          property['address'] ?? '',
+                          '${property['city'] ?? ''}, ${property['region'] ?? ''}',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.8),
                             fontSize: 14,
@@ -290,31 +590,51 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                           children: [
                             _buildPropertyFeature(
                               Icons.straighten,
-                              '${property['size']} m²',
+                              '${property['size'] ?? 0} m²',
                             ),
                             const SizedBox(width: 16),
                             _buildPropertyFeature(
                               Icons.king_bed,
-                              '${property['bedrooms']} Beds',
+                              '${property['bedrooms'] ?? 0} Beds',
                             ),
                             const SizedBox(width: 16),
                             _buildPropertyFeature(
                               Icons.bathtub,
-                              '${property['bathrooms']} Baths',
+                              '${property['bathrooms'] ?? 0} Baths',
                             ),
+                            if (property['totalRooms'] != null) ...[
+                              const SizedBox(width: 16),
+                              _buildPropertyFeature(
+                                Icons.room,
+                                '${property['totalRooms']} Rooms',
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              '\$${property['price']}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '\$${property['price'] ?? 0}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (property['pricePerM2'] != null)
+                                  Text(
+                                    '\$${property['pricePerM2']} per m²',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                              ],
                             ),
                             Row(
                               children: [
@@ -327,7 +647,10 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                                 _buildActionButton(
                                   Icons.delete,
                                   'Delete',
-                                  onTap: () => _deleteProperty(index),
+                                  onTap: () => _confirmDeleteProperty(
+                                      property['id'],
+                                      index
+                                  ),
                                 ),
                               ],
                             ),
@@ -358,7 +681,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           text,
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
+            fontSize: 12,
           ),
         ),
       ],

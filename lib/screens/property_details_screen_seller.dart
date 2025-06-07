@@ -1,6 +1,8 @@
 // lib/screens/property_details_screen_seller.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 
 class PropertyDetailsScreenSeller extends StatefulWidget {
@@ -20,6 +22,9 @@ class PropertyDetailsScreenSeller extends StatefulWidget {
 }
 
 class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSeller> {
+  // API Configuration
+  static const String API_BASE_URL = 'https://gethome.runasp.net';
+
   List<Map<String, dynamic>> _viewingRequests = [
     {
       'buyerName': 'John Doe',
@@ -33,6 +38,8 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     },
   ];
 
+  bool _isDeleting = false;
+
   void _deleteProperty() {
     showDialog(
       context: context,
@@ -44,7 +51,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
           style: TextStyle(color: Colors.white),
         ),
         content: const Text(
-          'Are you sure you want to delete this property?',
+          'Are you sure you want to delete this property? This action cannot be undone.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -56,12 +63,20 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
             ),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: _isDeleting ? null : () async {
               Navigator.pop(context); // Close dialog
-              widget.onDelete();
-              Navigator.pop(context); // Go back to dashboard
+              await _performDelete();
             },
-            child: const Text(
+            child: _isDeleting
+                ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+              ),
+            )
+                : const Text(
               'Delete',
               style: TextStyle(color: Colors.red),
             ),
@@ -69,6 +84,54 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
         ],
       ),
     );
+  }
+
+  Future<void> _performDelete() async {
+    setState(() => _isDeleting = true);
+
+    try {
+      final propertyId = widget.property['id'];
+      final response = await http.delete(
+        Uri.parse('$API_BASE_URL/api/properties/delete/$propertyId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Property deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          widget.onDelete();
+          Navigator.pop(context); // Go back to dashboard
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete property: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting property: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isDeleting = false);
+    }
   }
 
   void _editProperty() async {
@@ -81,10 +144,16 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
       ),
     );
 
-    if (result != null) {
-      widget.onEdit(result);
+    if (result != null && result == true) {
+      // Property was successfully updated
       if (mounted) {
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Property updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context); // Go back to refresh the list
       }
     }
   }
@@ -97,6 +166,43 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
         _viewingRequests[index]['status'] = 'Rejected';
       }
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Viewing request ${action}d'),
+        backgroundColor: action == 'approve' ? Colors.green : Colors.orange,
+      ),
+    );
+  }
+
+  String _getStatusText(int status) {
+    switch (status) {
+      case 0:
+        return 'Available';
+      case 1:
+        return 'Sold';
+      case 2:
+        return 'Rented';
+      case 3:
+        return 'Pending';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Color _getStatusColor(int status) {
+    switch (status) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.red;
+      case 2:
+        return Colors.blue;
+      case 3:
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
   }
 
   @override
@@ -128,7 +234,8 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                 expandedHeight: 300,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  background: widget.property['imagePath'] != null
+                  background: widget.property['imagePath'] != null &&
+                      widget.property['imagePath'].isNotEmpty
                       ? Image.file(
                     File(widget.property['imagePath']),
                     fit: BoxFit.cover,
@@ -148,8 +255,17 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                     onPressed: _editProperty,
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: _deleteProperty,
+                    icon: _isDeleting
+                        ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                        : const Icon(Icons.delete),
+                    onPressed: _isDeleting ? null : _deleteProperty,
                   ),
                 ],
               ),
@@ -161,43 +277,79 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title and price
+                      // Title, price and status
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Expanded(
-                            child: Text(
-                              widget.property['title'] ?? '',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.property['houseType'] ?? 'Property',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Property ID: ${widget.property['id']}',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '\$${widget.property['price']}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(widget.property['status'] ?? 0)
+                                      .withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _getStatusText(widget.property['status'] ?? 0),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '\$${widget.property['price'] ?? 0}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (widget.property['pricePerM2'] != null)
+                                Text(
+                                  '\$${widget.property['pricePerM2']} per m²',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
 
-                      // Address
+                      // Location
                       Row(
                         children: [
                           Icon(
@@ -207,7 +359,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            widget.property['address'] ?? '',
+                            '${widget.property['city'] ?? ''}, ${widget.property['region'] ?? ''}',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 16,
@@ -215,6 +367,30 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                           ),
                         ],
                       ),
+
+                      // High Floor indicator
+                      if (widget.property['isHighFloor'] == true) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.height,
+                              color: Colors.blue.withOpacity(0.8),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'High Floor Property',
+                              style: TextStyle(
+                                color: Colors.blue.withOpacity(0.8),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+
                       const SizedBox(height: 20),
 
                       // Property features
@@ -224,47 +400,43 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                           color: Colors.white.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(15),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        child: Column(
                           children: [
-                            _buildFeature(
-                              Icons.straighten,
-                              'Size',
-                              '${widget.property['size']} m²',
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildFeature(
+                                  Icons.straighten,
+                                  'Size',
+                                  '${widget.property['size'] ?? 0} m²',
+                                ),
+                                _buildFeature(
+                                  Icons.king_bed,
+                                  'Bedrooms',
+                                  '${widget.property['bedrooms'] ?? 0}',
+                                ),
+                                _buildFeature(
+                                  Icons.bathtub,
+                                  'Bathrooms',
+                                  '${widget.property['bathrooms'] ?? 0}',
+                                ),
+                              ],
                             ),
-                            _buildFeature(
-                              Icons.king_bed,
-                              'Bedrooms',
-                              '${widget.property['bedrooms']}',
-                            ),
-                            _buildFeature(
-                              Icons.bathtub,
-                              'Bathrooms',
-                              '${widget.property['bathrooms']}',
-                            ),
+                            if (widget.property['totalRooms'] != null) ...[
+                              const SizedBox(height: 16),
+                              _buildFeature(
+                                Icons.room,
+                                'Total Rooms',
+                                '${widget.property['totalRooms']}',
+                              ),
+                            ],
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
 
-                      // Description
-                      const Text(
-                        'Description',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.property['description'] ?? '',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 16,
-                          height: 1.5,
-                        ),
-                      ),
+                      // Property Information
+                      _buildInfoSection(),
                       const SizedBox(height: 20),
 
                       // Viewing requests
@@ -318,7 +490,89 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     );
   }
 
+  Widget _buildInfoSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Property Information',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildInfoRow('House Type', widget.property['houseType'] ?? 'N/A'),
+          _buildInfoRow('Region', widget.property['region'] ?? 'N/A'),
+          _buildInfoRow('City', widget.property['city'] ?? 'N/A'),
+          _buildInfoRow('Size', '${widget.property['size'] ?? 0} m²'),
+          _buildInfoRow('Bedrooms', '${widget.property['bedrooms'] ?? 0}'),
+          _buildInfoRow('Bathrooms', '${widget.property['bathrooms'] ?? 0}'),
+          if (widget.property['totalRooms'] != null)
+            _buildInfoRow('Total Rooms', '${widget.property['totalRooms']}'),
+          _buildInfoRow('High Floor', widget.property['isHighFloor'] == true ? 'Yes' : 'No'),
+          _buildInfoRow('Status', _getStatusText(widget.property['status'] ?? 0)),
+          _buildInfoRow('Price', '\$${widget.property['price'] ?? 0}'),
+          if (widget.property['pricePerM2'] != null)
+            _buildInfoRow('Price per m²', '\$${widget.property['pricePerM2']}'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildViewingRequestsList() {
+    if (_viewingRequests.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Center(
+          child: Text(
+            'No viewing requests yet',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 16,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: _viewingRequests.asMap().entries.map((entry) {
         final index = entry.key;
@@ -391,7 +645,10 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text('Approve'),
+                          child: const Text(
+                            'Approve',
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -404,7 +661,10 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text('Reject'),
+                          child: const Text(
+                            'Reject',
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ),
                       ),
                     ],

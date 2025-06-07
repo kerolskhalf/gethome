@@ -6,6 +6,7 @@ import 'dart:convert';
 import './registration_screen.dart';
 import './buyer_dashboard_screen.dart';
 import './seller_dashboard_screen.dart';
+import '../utils/user_session.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -20,9 +21,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _isPasswordVisible = false;
+  bool _rememberMe = false;
+  bool _showRoleOverride = false; // For debugging role issues
 
   // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://gethome.runasp.net'; // Update this with your actual API URL
+  static const String API_BASE_URL = 'https://gethome.runasp.net';
 
   @override
   void dispose() {
@@ -37,31 +40,105 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final requestBody = {
+        'email': _emailController.text.trim(),
+        'password': _passwordController.text,
+      };
+
+      print('Login request body: ${json.encode(requestBody)}'); // Debug log
+
       final response = await http.post(
         Uri.parse('$API_BASE_URL/api/auth/login'),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: json.encode({
-          'email': _emailController.text.trim(),
-          'password': _passwordController.text,
-        }),
+        body: json.encode(requestBody),
       );
 
       setState(() => _isLoading = false);
 
       if (!mounted) return;
 
+      print('Login response status: ${response.statusCode}'); // Debug log
+      print('Login response body: ${response.body}'); // Debug log
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
-        // Extract user information from backend response
-        final String userRole = data['role'].toString().toLowerCase();
-        final String fullName = data['fullName'] ?? '';
-        final int userId = data['userId'] ?? 0;
+        // Debug: Print the entire API response to see what we're getting
+        print('=== LOGIN API RESPONSE DEBUG ===');
+        print('Full response data: ${json.encode(data)}');
+        print('Available fields: ${data.keys.toList()}');
+        print('================================');
+
+        // Handle different possible role field names and values
+        String userRole = 'buyer'; // default role
+
+        // Try different possible field names for role
+        if (data.containsKey('role')) {
+          userRole = data['role'].toString().toLowerCase();
+          print('Found role field: ${data['role']}');
+        } else if (data.containsKey('userType')) {
+          userRole = data['userType'].toString().toLowerCase();
+          print('Found userType field: ${data['userType']}');
+        } else if (data.containsKey('accountType')) {
+          userRole = data['accountType'].toString().toLowerCase();
+          print('Found accountType field: ${data['accountType']}');
+        } else if (data.containsKey('userRole')) {
+          userRole = data['userRole'].toString().toLowerCase();
+          print('Found userRole field: ${data['userRole']}');
+        } else if (data.containsKey('type')) {
+          userRole = data['type'].toString().toLowerCase();
+          print('Found type field: ${data['type']}');
+        } else {
+          print('No role field found in API response!');
+
+          // If no role field is found, show a dialog to let user choose
+          if (mounted) {
+            userRole = await _showRoleSelectionDialog() ?? 'buyer';
+          }
+        }
+
+        print('Raw role value: $userRole');
+
+        // Normalize role values
+        if (userRole.contains('buy')) {
+          userRole = 'buyer';
+        } else if (userRole.contains('sell')) {
+          userRole = 'seller';
+        } else if (userRole == '0' || userRole == 'false') {
+          userRole = 'buyer';
+        } else if (userRole == '1' || userRole == 'true') {
+          userRole = 'seller';
+        }
+
+        print('Normalized role: $userRole');
+
+        // Store user data globally using UserSession
+        UserSession.setCurrentUser({
+          'userId': data['userId'] ?? data['id'] ?? 123, // fallback ID
+          'fullName': data['fullName'] ?? data['name'] ?? 'User',
+          'email': data['email'] ?? _emailController.text.trim(),
+          'role': userRole,
+          'phoneNumber': data['phoneNumber'] ?? data['phone'],
+          'dateOfBirth': data['dateOfBirth'],
+          'token': data['token'] ?? data['accessToken'], // JWT token variations
+        });
+
+        final String fullName = UserSession.getCurrentUserName();
+        final int userId = UserSession.getCurrentUserId();
 
         print('Login successful for user: $fullName, Role: $userRole, ID: $userId');
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Welcome back, $fullName! (Role: $userRole)'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
 
         // Navigate based on role
         if (userRole == 'buyer') {
@@ -79,18 +156,36 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         } else {
-          _showErrorMessage('Invalid user role: $userRole');
+          // For unknown roles, show selection dialog
+          final selectedRole = await _showRoleSelectionDialog();
+          if (selectedRole != null && mounted) {
+            // Update the stored role
+            UserSession.setCurrentUser({
+              ...UserSession.getCurrentUser()!,
+              'role': selectedRole,
+            });
+
+            if (selectedRole == 'buyer') {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BuyerDashboardScreen(),
+                ),
+              );
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SellerDashboardScreen(),
+                ),
+              );
+            }
+          }
         }
 
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Welcome back, $fullName!'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-
+      } else if (response.statusCode == 400) {
+        // Handle validation errors
+        _handle400ValidationError(response.body);
       } else if (response.statusCode == 401) {
         // Handle unauthorized (wrong email/password)
         try {
@@ -99,13 +194,17 @@ class _LoginScreenState extends State<LoginScreen> {
         } catch (e) {
           _showErrorMessage('Invalid email or password');
         }
+      } else if (response.statusCode == 404) {
+        _showErrorMessage('User not found. Please check your email or register a new account.');
+      } else if (response.statusCode == 422) {
+        _showErrorMessage('Invalid data format. Please check your inputs.');
       } else {
         // Handle other errors
         try {
           final errorData = json.decode(response.body);
-          _showErrorMessage(errorData['message'] ?? 'Server error. Please try again later.');
+          _showErrorMessage(errorData['message'] ?? 'Server error (${response.statusCode}). Please try again later.');
         } catch (e) {
-          _showErrorMessage('Server error. Please try again later.');
+          _showErrorMessage('Server error (${response.statusCode}). Please try again later.');
         }
       }
     } catch (e) {
@@ -117,12 +216,48 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _handle400ValidationError(String responseBody) {
+    try {
+      final errorData = json.decode(responseBody);
+
+      if (errorData.containsKey('errors')) {
+        // Handle validation errors object
+        final errors = errorData['errors'] as Map<String, dynamic>;
+        final List<String> errorMessages = [];
+
+        errors.forEach((field, messages) {
+          if (messages is List) {
+            for (final message in messages) {
+              errorMessages.add('$field: $message');
+            }
+          } else {
+            errorMessages.add('$field: $messages');
+          }
+        });
+
+        _showErrorMessage('Validation errors:\n${errorMessages.join('\n')}');
+      } else if (errorData.containsKey('message')) {
+        _showErrorMessage(errorData['message']);
+      } else if (errorData.containsKey('title')) {
+        String message = errorData['title'];
+        if (errorData.containsKey('detail')) {
+          message += ': ${errorData['detail']}';
+        }
+        _showErrorMessage(message);
+      } else {
+        _showErrorMessage('Please check your email and password format.');
+      }
+    } catch (e) {
+      _showErrorMessage('Invalid email or password format.');
+    }
+  }
+
   void _showErrorMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
           label: 'Dismiss',
           textColor: Colors.white,
@@ -130,6 +265,106 @@ class _LoginScreenState extends State<LoginScreen> {
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
           },
         ),
+      ),
+    );
+  }
+
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _debugLoginAs(String role) {
+    // For testing purposes - bypass API and login directly with specified role
+    UserSession.setCurrentUser({
+      'userId': 999, // Test user ID
+      'fullName': 'Test ${role.toUpperCase()}',
+      'email': _emailController.text.trim().isNotEmpty
+          ? _emailController.text.trim()
+          : 'test@example.com',
+      'role': role,
+      'phoneNumber': '+1234567890',
+      'dateOfBirth': DateTime.now().subtract(const Duration(days: 365 * 25)).toIso8601String(),
+      'token': 'debug_token_${role}_${DateTime.now().millisecondsSinceEpoch}',
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Debug login as $role successful!'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    if (role == 'buyer') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const BuyerDashboardScreen()),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const SellerDashboardScreen()),
+      );
+    }
+  }
+
+  Future<String?> _showRoleSelectionDialog() async {
+    return await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Select Your Role',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'The system couldn\'t detect your role. Please select whether you want to login as a buyer or seller:',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'buyer'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+
+                ],
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'seller'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.sell, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text('Seller', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -165,6 +400,33 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     return null;
+  }
+
+  void _handleForgotPassword() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Forgot Password',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Forgot password feature will be available soon. Please contact support for assistance.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -239,6 +501,44 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           child: Column(
             children: [
+              // App Logo/Icon with debug mode toggle
+              GestureDetector(
+                onLongPress: () {
+                  setState(() {
+                    _showRoleOverride = !_showRoleOverride;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          _showRoleOverride
+                              ? 'Debug mode enabled - role override available'
+                              : 'Debug mode disabled'
+                      ),
+                      backgroundColor: _showRoleOverride ? Colors.orange : Colors.grey,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(_showRoleOverride ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _showRoleOverride
+                          ? Colors.orange.withOpacity(0.5)
+                          : Colors.white.withOpacity(0.2),
+                      width: _showRoleOverride ? 2 : 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.home_work,
+                    size: 48,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               Text(
                 'Welcome Back',
                 style: TextStyle(
@@ -256,7 +556,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Sign in to continue',
+                'Sign in to find your perfect home',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.white.withOpacity(0.8),
@@ -292,6 +592,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   hintText: 'Enter your email address',
                   keyboardType: TextInputType.emailAddress,
                   validator: _validateEmail,
+                  prefixIcon: Icons.email,
                 ),
                 const SizedBox(height: 20),
                 _buildTextField(
@@ -300,24 +601,101 @@ class _LoginScreenState extends State<LoginScreen> {
                   hintText: 'Enter your password',
                   isPassword: true,
                   validator: _validatePassword,
+                  prefixIcon: Icons.lock,
                 ),
                 const SizedBox(height: 15),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {
-                      // TODO: Implement forgot password functionality
-                      _showErrorMessage('Forgot password feature coming soon!');
-                    },
-                    child: Text(
-                      'Forgot Password?',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
+
+                // Remember me and forgot password row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _rememberMe,
+                          onChanged: (value) {
+                            setState(() {
+                              _rememberMe = value ?? false;
+                            });
+                          },
+                          fillColor: WidgetStateProperty.all(
+                            Colors.white.withOpacity(0.2),
+                          ),
+                          checkColor: Colors.white,
+                        ),
+                        Text(
+                          'Remember me',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    TextButton(
+                      onPressed: _handleForgotPassword,
+                      child: Text(
+                        'Forgot Password?',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
                 const SizedBox(height: 30),
+
+                // Debug: Role Override (for testing)
+                if (_showRoleOverride) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Debug Mode: Force Role Selection',
+                          style: TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _debugLoginAs('buyer'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.withOpacity(0.3),
+                                ),
+                                child: const Text('Login as Buyer'),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _debugLoginAs('seller'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green.withOpacity(0.3),
+                                ),
+                                child: const Text('Login as Seller'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
                 _buildLoginButton(),
                 const SizedBox(height: 20),
                 _buildRegisterLink(),
@@ -336,6 +714,7 @@ class _LoginScreenState extends State<LoginScreen> {
     bool isPassword = false,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
+    IconData? prefixIcon,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,6 +740,12 @@ class _LoginScreenState extends State<LoginScreen> {
             hintStyle: TextStyle(
               color: Colors.white.withOpacity(0.5),
             ),
+            prefixIcon: prefixIcon != null
+                ? Icon(
+              prefixIcon,
+              color: Colors.white.withOpacity(0.7),
+            )
+                : null,
             filled: true,
             fillColor: Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
@@ -416,6 +801,7 @@ class _LoginScreenState extends State<LoginScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          elevation: 0,
         ),
         child: _isLoading
             ? const SizedBox(
@@ -462,6 +848,7 @@ class _LoginScreenState extends State<LoginScreen> {
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
+              decoration: TextDecoration.underline,
             ),
           ),
         ),

@@ -1,9 +1,3 @@
-//summary to me
-//Registers users by sending their details to a backend.
-// Validates input before submission.
-// Navigates to different dashboards based on user role.
-// Uses loading indicators to improve UI experience.
-// Uses network error handling for better robustness.
 // lib/screens/registration_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:ui';
@@ -11,6 +5,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import './buyer_dashboard_screen.dart';
 import './seller_dashboard_screen.dart';
+import '../utils/user_session.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -30,11 +25,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
+
   String _selectedRole = 'Buyer';
   DateTime? _selectedDateOfBirth;
 
   // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://gethome.runasp.net'; // Update this with your actual API URL
+  static const String API_BASE_URL = 'https://gethome.runasp.net';
 
   @override
   void dispose() {
@@ -46,20 +42,21 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     super.dispose();
   }
 
-  // Strong validation functions matching the API schema
+  // Enhanced validation functions matching the API schema
   String? _validateFullName(String? value) {
     if (value?.isEmpty ?? true) {
       return 'Full name is required';
     }
-    if (value!.trim().length < 1) {
-      return 'Full name must be at least 1 character';
-    }
-    if (value.trim().length < 2) {
-      return 'Please enter a valid full name';
+    if (value!.trim().length < 2) {
+      return 'Full name must be at least 2 characters';
     }
     // Check if it contains at least first and last name
     if (!value.trim().contains(' ')) {
       return 'Please enter your full name (first and last name)';
+    }
+    // Check for valid characters (letters, spaces, hyphens, apostrophes)
+    if (!RegExp(r"^[a-zA-Z\s\-']+$").hasMatch(value.trim())) {
+      return 'Name can only contain letters, spaces, hyphens, and apostrophes';
     }
     return null;
   }
@@ -77,6 +74,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     if (!emailRegex.hasMatch(value.trim())) {
       return 'Please enter a valid email address';
     }
+
+    // Check for common email providers for better UX
+    final email = value.trim().toLowerCase();
+    if (email.length > 100) {
+      return 'Email address is too long';
+    }
+
     return null;
   }
 
@@ -87,14 +91,24 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     if (value!.length < 6) {
       return 'Password must be at least 6 characters';
     }
+    if (value.length > 100) {
+      return 'Password is too long';
+    }
 
-    // Additional password strength checks
+    // Enhanced password strength checks
     if (!value.contains(RegExp(r'[A-Za-z]'))) {
       return 'Password must contain at least one letter';
     }
     if (!value.contains(RegExp(r'[0-9]'))) {
       return 'Password must contain at least one number';
     }
+
+    // Check for common weak passwords
+    final weakPasswords = ['123456', 'password', 'qwerty', '123123'];
+    if (weakPasswords.contains(value.toLowerCase())) {
+      return 'Password is too weak. Please choose a stronger password';
+    }
+
     return null;
   }
 
@@ -117,11 +131,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       return null; // It's optional
     }
 
-    // If provided, validate format
+    // Remove all non-digit characters for validation
+    final digitsOnly = value!.replaceAll(RegExp(r'[^\d]'), '');
+
+    // If provided, validate format and length
+    if (digitsOnly.length < 10) {
+      return 'Phone number must be at least 10 digits';
+    }
+    if (digitsOnly.length > 15) {
+      return 'Phone number is too long';
+    }
+
+    // Basic phone format validation
     final phoneRegex = RegExp(r'^\+?[\d\s\-\(\)]{10,}$');
-    if (!phoneRegex.hasMatch(value!.replaceAll(' ', ''))) {
+    if (!phoneRegex.hasMatch(value.replaceAll(' ', ''))) {
       return 'Please enter a valid phone number';
     }
+
     return null;
   }
 
@@ -143,8 +169,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       return 'Date of birth cannot be in the future';
     }
 
+    // Check if date is reasonable (not before 1900)
+    final minDate = DateTime(1900);
+    if (dateOfBirth.isBefore(minDate)) {
+      return 'Please enter a valid date of birth';
+    }
+
     return null;
   }
+
+
 
   Future<void> _selectDateOfBirth() async {
     final DateTime? pickedDate = await showDatePicker(
@@ -155,6 +189,19 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       helpText: 'Select Date of Birth',
       cancelText: 'Cancel',
       confirmText: 'Select',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFF234E70),
+              onPrimary: Colors.white,
+              surface: Color(0xFF1a237e),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (pickedDate != null) {
@@ -189,9 +236,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             ? null
             : _phoneNumberController.text.trim(),
         'dateOfBirth': dateOfBirthString,
+        'role': _selectedRole.toLowerCase(), // Add role to registration
       };
 
-      print('Request body: ${json.encode(requestBody)}'); // Debug log
+      print('Registration request body: ${json.encode(requestBody)}'); // Debug log
 
       final response = await http.post(
         Uri.parse('$API_BASE_URL/api/auth/register'),
@@ -206,11 +254,26 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       if (!mounted) return;
 
-      print('Response status: ${response.statusCode}'); // Debug log
-      print('Response body: ${response.body}'); // Debug log
+      print('Registration response status: ${response.statusCode}'); // Debug log
+      print('Registration response body: ${response.body}'); // Debug log
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Successful registration
+        final responseData = json.decode(response.body);
+
+        // Store user data for immediate use
+        UserSession.setCurrentUser({
+          'userId': responseData['userId'] ?? 0,
+          'fullName': _fullNameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'role': _selectedRole.toLowerCase(),
+          'phoneNumber': _phoneNumberController.text.trim().isEmpty
+              ? null
+              : _phoneNumberController.text.trim(),
+          'dateOfBirth': dateOfBirthString,
+          'token': responseData['token'], // If your API returns a JWT token
+        });
+
         _showSuccessMessage('Registration successful! Welcome to our app.');
 
         // Navigate to appropriate dashboard based on role
@@ -244,7 +307,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        print('Network error: $e'); // Debug log
+        print('Registration network error: $e'); // Debug log
         _showErrorMessage('Network error. Please check your internet connection and try again.');
       }
     }
@@ -310,6 +373,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       ),
     );
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -393,28 +458,52 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Create Account',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withOpacity(0.1),
-                        offset: const Offset(2, 2),
-                        blurRadius: 4,
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(15),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Register to get started',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white.withOpacity(0.8),
-                  ),
+                      child: const Icon(
+                        Icons.person_add,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Create Account',
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  offset: const Offset(2, 2),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            'Join our real estate community',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white.withOpacity(0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 32),
 
@@ -428,6 +517,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   label: 'Full Name *',
                   hintText: 'Enter your full name',
                   validator: _validateFullName,
+                  prefixIcon: Icons.person,
                 ),
                 const SizedBox(height: 20),
 
@@ -438,6 +528,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   hintText: 'Enter your email',
                   keyboardType: TextInputType.emailAddress,
                   validator: _validateEmail,
+                  prefixIcon: Icons.email,
                 ),
                 const SizedBox(height: 20),
 
@@ -448,6 +539,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   hintText: 'Enter your phone number (optional)',
                   keyboardType: TextInputType.phone,
                   validator: _validatePhoneNumber,
+                  prefixIcon: Icons.phone,
                 ),
                 const SizedBox(height: 20),
 
@@ -468,6 +560,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     });
                   },
                   validator: _validatePassword,
+                  prefixIcon: Icons.lock,
                 ),
                 const SizedBox(height: 20),
 
@@ -484,8 +577,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     });
                   },
                   validator: _validateConfirmPassword,
+                  prefixIcon: Icons.lock_outline,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
 
                 // Register Button
                 _buildRegisterButton(),
@@ -502,6 +596,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   Widget _buildDateOfBirthField() {
+    final hasError = _validateDateOfBirth(_selectedDateOfBirth) != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -521,34 +617,55 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.2)),
+              border: Border.all(
+                color: hasError ? Colors.red : Colors.white.withOpacity(0.2),
+              ),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  _selectedDateOfBirth != null
-                      ? '${_selectedDateOfBirth!.day}/${_selectedDateOfBirth!.month}/${_selectedDateOfBirth!.year}'
-                      : 'Select your date of birth',
-                  style: TextStyle(
-                    color: _selectedDateOfBirth != null
-                        ? Colors.white
-                        : Colors.white.withOpacity(0.5),
-                    fontSize: 16,
+                Icon(
+                  Icons.calendar_today,
+                  color: Colors.white.withOpacity(0.7),
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _selectedDateOfBirth != null
+                        ? '${_selectedDateOfBirth!.day}/${_selectedDateOfBirth!.month}/${_selectedDateOfBirth!.year}'
+                        : 'Select your date of birth',
+                    style: TextStyle(
+                      color: _selectedDateOfBirth != null
+                          ? Colors.white
+                          : Colors.white.withOpacity(0.5),
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 Icon(
-                  Icons.calendar_today,
+                  Icons.arrow_drop_down,
                   color: Colors.white.withOpacity(0.8),
-                  size: 20,
+                  size: 24,
                 ),
               ],
             ),
           ),
         ),
+        if (hasError) ...[
+          const SizedBox(height: 8),
+          Text(
+            _validateDateOfBirth(_selectedDateOfBirth)!,
+            style: const TextStyle(
+              color: Colors.red,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ],
     );
   }
+
+
 
   Widget _buildRoleDropdown() {
     return Column(
@@ -569,26 +686,38 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.white.withOpacity(0.2)),
           ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedRole,
-              isExpanded: true,
-              dropdownColor: const Color(0xFF234E70),
-              style: const TextStyle(color: Colors.white),
-              items: ['Buyer', 'Seller'].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  setState(() {
-                    _selectedRole = newValue;
-                  });
-                }
-              },
-            ),
+          child: Row(
+            children: [
+
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedRole,
+                    isExpanded: true,
+                    dropdownColor: const Color(0xFF234E70),
+                    style: const TextStyle(color: Colors.white),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: 'Buyer',
+                        child: Text('Buyer - Looking for properties'),
+                      ),
+                      const DropdownMenuItem<String>(
+                        value: 'Seller',
+                        child: Text('Seller - Listing properties'),
+                      ),
+                    ],
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _selectedRole = newValue;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -604,6 +733,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     VoidCallback? onTogglePasswordVisibility,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
+    IconData? prefixIcon,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,6 +759,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             hintStyle: TextStyle(
               color: Colors.white.withOpacity(0.5),
             ),
+            prefixIcon: prefixIcon != null
+                ? Icon(
+              prefixIcon,
+              color: Colors.white.withOpacity(0.7),
+            )
+                : null,
             filled: true,
             fillColor: Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
@@ -680,6 +816,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          elevation: 0,
         ),
         child: _isLoading
             ? const SizedBox(
@@ -691,7 +828,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           ),
         )
             : const Text(
-          'Register',
+          'Create Account',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -715,10 +852,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text(
-            'Login',
+            'Sign In',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
+              decoration: TextDecoration.underline,
             ),
           ),
         ),

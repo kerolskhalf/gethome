@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'property_details_screen.dart';
 import 'property_comparison_screen.dart';
+import '../utils/user_session.dart';
+import 'login_screen.dart';
 
 class BuyerDashboardScreen extends StatefulWidget {
   const BuyerDashboardScreen({Key? key}) : super(key: key);
@@ -17,8 +19,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   // API Configuration
   static const String API_BASE_URL = 'https://gethome.runasp.net';
 
-  // User ID - In a real app, this would come from authentication
-  final int currentUserId = 123; // Replace with actual user ID from login
+  // User ID from authentication
+  int get currentUserId => UserSession.getCurrentUserId();
 
   // Filter values
   RangeValues _priceRange = const RangeValues(0, 1000000);
@@ -84,6 +86,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       setState(() => _isLoadingFavorites = false);
     }
   }
+
   // Load properties from API with search filters
   Future<void> _loadProperties() async {
     setState(() => _isLoadingProperties = true);
@@ -239,6 +242,50 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     await _loadProperties();
   }
 
+  void _handleLogout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Logout',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Are you sure you want to logout, ${UserSession.getCurrentUserName()}?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              // Clear user session
+              UserSession.clearSession();
+
+              // Navigate to login screen and remove all previous routes
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+              );
+            },
+            child: const Text(
+              'Logout',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _togglePropertySelection(String propertyId) {
     setState(() {
       if (_selectedForComparison.contains(propertyId)) {
@@ -365,30 +412,39 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             children: [
               CircleAvatar(
                 backgroundColor: Colors.white.withOpacity(0.2),
-                child: const Icon(Icons.person, color: Colors.white),
+                child: Text(
+                  UserSession.getCurrentUserName().isNotEmpty
+                      ? UserSession.getCurrentUserName()[0].toUpperCase()
+                      : 'U',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               const SizedBox(width: 16),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Find Your Dream Home',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome, ${UserSession.getCurrentUserName()}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Browse available properties',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
+                    const Text(
+                      'Find your dream home',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const Spacer(),
               IconButton(
                 icon: Icon(
                   _isFilterVisible ? Icons.close : Icons.filter_list,
@@ -399,10 +455,17 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                     _isFilterVisible = !_isFilterVisible;
                   });
                 },
+                tooltip: 'Filters',
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, color: Colors.white),
                 onPressed: _loadInitialData,
+                tooltip: 'Refresh',
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.white),
+                onPressed: _handleLogout,
+                tooltip: 'Logout',
               ),
             ],
           ),
@@ -775,7 +838,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                property['title'] ?? 'Property',
+                                property['title'] ?? property['houseType'] ?? 'Property',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
@@ -803,7 +866,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                property['address'] ?? '',
+                                '${property['city'] ?? ''}, ${property['region'] ?? ''}',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.8),
                                   fontSize: 14,
@@ -816,13 +879,26 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              '\$${property['price'] ?? 0}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '\$${property['price'] ?? 0}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (property['pricePerM2'] != null)
+                                  Text(
+                                    '\$${property['pricePerM2']} per m²',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                              ],
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -834,7 +910,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                property['propertyType'] ?? 'Property',
+                                property['houseType'] ?? 'Property',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 14,
@@ -913,11 +989,12 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Try adjusting your filters',
+            'Try adjusting your filters or search terms',
             style: TextStyle(
               color: Colors.white.withOpacity(0.6),
               fontSize: 14,
             ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
