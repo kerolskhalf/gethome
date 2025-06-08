@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 import 'login_screen.dart';
 
 class SellerDashboardScreen extends StatefulWidget {
@@ -16,9 +17,6 @@ class SellerDashboardScreen extends StatefulWidget {
 }
 
 class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
-  // API Configuration
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
-
   // User ID from authentication
   int get currentUserId => UserSession.getCurrentUserId();
 
@@ -30,52 +28,163 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    print('🏠 Seller Dashboard Initialized');
+    print('👤 Current User ID: $currentUserId');
+    print('👤 Current User Name: ${UserSession.getCurrentUserName()}');
+    print('👤 Current User Role: ${UserSession.getCurrentUserRole()}');
     _loadUserProperties();
   }
 
-  // Load user's properties from API
+  // Load user's properties from API with fallback endpoints
   Future<void> _loadUserProperties() async {
+    print('🔄 Loading properties for user: $currentUserId');
     setState(() => _isLoading = true);
 
-    try {
-      final response = await http.get(
-        Uri.parse('$API_BASE_URL/api/properties/user/$currentUserId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      );
+    // Try multiple possible endpoints
+    final endpoints = [
+      ApiConfig.userPropertiesUrl(currentUserId),
+      ApiConfig.userPropertiesUrlAlt1(currentUserId),
+      ApiConfig.userPropertiesUrlAlt2(currentUserId),
+      ApiConfig.userPropertiesUrlAlt3(currentUserId),
+    ];
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _properties = List<Map<String, dynamic>>.from(data['data'] ?? []);
-          _errorMessage = null;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load properties';
-        });
+    for (int i = 0; i < endpoints.length; i++) {
+      try {
+        final endpoint = endpoints[i];
+        print('📡 Trying endpoint ${i + 1}: $endpoint');
+
+        final response = await http.get(
+          Uri.parse(endpoint),
+          headers: ApiConfig.headers,
+        );
+
+        print('📡 Response Status: ${response.statusCode}');
+        print('📡 Response Body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          print('✅ API Response successful from endpoint ${i + 1}');
+          print('📊 Raw data: $data');
+
+          // Handle different possible response formats
+          List<dynamic> propertiesData = [];
+
+          if (data is Map<String, dynamic>) {
+            // Try different possible keys for the properties array
+            if (data.containsKey('data')) {
+              propertiesData = data['data'] ?? [];
+            } else if (data.containsKey('properties')) {
+              propertiesData = data['properties'] ?? [];
+            } else if (data.containsKey('items')) {
+              propertiesData = data['items'] ?? [];
+            } else if (data.containsKey('result')) {
+              propertiesData = data['result'] ?? [];
+            } else if (data.containsKey('content')) {
+              propertiesData = data['content'] ?? [];
+            } else {
+              // Maybe the response is directly the array in some field
+              for (final value in data.values) {
+                if (value is List) {
+                  propertiesData = value;
+                  break;
+                }
+              }
+
+              // If still empty, maybe it's a single property object
+              if (propertiesData.isEmpty && data.isNotEmpty) {
+                // Check if this looks like a single property
+                if (data.containsKey('id') || data.containsKey('houseType') || data.containsKey('price')) {
+                  propertiesData = [data];
+                }
+              }
+            }
+          } else if (data is List) {
+            // Response is directly an array
+            propertiesData = data;
+          }
+
+          print('📝 Extracted properties data: $propertiesData');
+          print('📊 Properties count: ${propertiesData.length}');
+
+          setState(() {
+            _properties = List<Map<String, dynamic>>.from(propertiesData);
+            _errorMessage = null;
+          });
+
+          print('✅ Properties loaded: ${_properties.length} items');
+          if (_properties.isNotEmpty) {
+            print('📝 First property sample: ${_properties.first}');
+          }
+
+          setState(() => _isLoading = false);
+          return; // Success, exit the loop
+
+        } else if (response.statusCode == 404) {
+          // User has no properties yet - this is normal
+          print('ℹ️ No properties found for user (404) - trying next endpoint...');
+          continue; // Try next endpoint
+        } else if (response.statusCode == 401) {
+          setState(() {
+            _errorMessage = 'Authentication failed. Please login again.';
+            _isLoading = false;
+          });
+          print('❌ Authentication error (401)');
+          return;
+        } else {
+          print('❌ API Error from endpoint ${i + 1}: ${response.statusCode} - ${response.body}');
+          continue; // Try next endpoint
+        }
+      } catch (e) {
+        print('❌ Network Error from endpoint ${i + 1}: $e');
+        continue; // Try next endpoint
       }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Network error: $e';
-      });
-    } finally {
-      setState(() => _isLoading = false);
     }
+
+    // If we get here, all endpoints failed
+    setState(() {
+      _properties = [];
+      _errorMessage = 'Could not load properties. Please check your connection and try again.';
+      _isLoading = false;
+    });
+    print('❌ All endpoints failed');
   }
 
   void _addNewProperty() async {
+    print('➕ Adding new property');
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const EnhancedAddPropertyScreen()),
     );
 
-    if (result != null && mounted) {
-      // Reload properties from server to get the latest data
-      _loadUserProperties();
+    if (result == true && mounted) {
+      print('✅ Property added successfully, refreshing list');
+      // Show loading immediately
+      setState(() => _isLoading = true);
+
+      // Add a small delay to ensure server has processed the new property
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Force refresh after successful addition
+      await _loadUserProperties();
+    } else if (mounted) {
+      print('ℹ️ Returned from add property screen without success');
+      // Still refresh to be safe
+      await _loadUserProperties();
     }
+  }
+
+  // Force refresh method
+  Future<void> _forceRefresh() async {
+    print('🔄 Force refresh triggered');
+    setState(() => _isLoading = true);
+
+    // Clear current properties to show loading state
+    setState(() => _properties = []);
+
+    // Add a small delay to ensure any server-side processing is complete
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    await _loadUserProperties();
   }
 
   void _handleLogout() {
@@ -102,10 +211,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           ),
           TextButton(
             onPressed: () {
-              // Clear user session
               UserSession.clearSession();
-
-              // Navigate to login screen and remove all previous routes
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -126,18 +232,14 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     setState(() {
       _properties[index] = updatedProperty;
     });
-    // Optionally reload from server to ensure consistency
     _loadUserProperties();
   }
 
   Future<void> _deleteProperty(int propertyId, int index) async {
     try {
       final response = await http.delete(
-        Uri.parse('$API_BASE_URL/api/properties/delete/$propertyId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.deletePropertyUrl(propertyId)),
+        headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
@@ -275,7 +377,17 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               if (_isLoading)
                 const Expanded(
                   child: Center(
-                    child: CircularProgressIndicator(color: Colors.white),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(height: 16),
+                        Text(
+                          'Loading your properties...',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
                   ),
                 )
               else if (_errorMessage != null)
@@ -295,10 +407,25 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _loadUserProperties,
-        backgroundColor: Colors.white.withOpacity(0.2),
-        child: const Icon(Icons.refresh, color: Colors.white),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            onPressed: _forceRefresh,
+            backgroundColor: Colors.orange.withOpacity(0.8),
+            heroTag: "refresh",
+            tooltip: 'Force Refresh Properties',
+            child: const Icon(Icons.refresh, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.extended(
+            onPressed: _addNewProperty,
+            backgroundColor: Colors.blue.withOpacity(0.8),
+            heroTag: "add",
+            label: const Text('Add Property', style: TextStyle(color: Colors.white)),
+            icon: const Icon(Icons.add, color: Colors.white),
+          ),
+        ],
       ),
     );
   }
@@ -318,7 +445,13 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
         children: [
           CircleAvatar(
             backgroundColor: Colors.white.withOpacity(0.2),
-            child: const Icon(Icons.person, color: Colors.white),
+            child: Text(
+              UserSession.getUserInitials(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -326,7 +459,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Welcome, ${UserSession.getCurrentUserName()}',
+                  'Welcome, ${UserSession.getDisplayName()}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -345,7 +478,10 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _loadUserProperties,
+            onPressed: () {
+              print('🔄 Manual refresh triggered');
+              _loadUserProperties();
+            },
             tooltip: 'Refresh Properties',
           ),
           IconButton(
@@ -410,13 +546,24 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               _errorMessage!,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.8),
-                fontSize: 18,
+                fontSize: 16,
               ),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 8),
+            Text(
+              'User ID: $currentUserId',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 12,
+              ),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _loadUserProperties,
+              onPressed: () {
+                print('🔄 Retry button pressed');
+                _forceRefresh();
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white.withOpacity(0.2),
               ),
@@ -451,12 +598,70 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Click the button above to add your first property',
+            'Click "Add Property" to add your first property',
             style: TextStyle(
               color: Colors.white.withOpacity(0.6),
               fontSize: 14,
             ),
             textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+
+          // Debug information
+          Container(
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 40),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.2)),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'Debug Info',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'User ID: $currentUserId',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 11,
+                  ),
+                ),
+                Text(
+                  'API: ${ApiConfig.userPropertiesUrl(currentUserId)}',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 11,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Manual refresh button
+          ElevatedButton.icon(
+            onPressed: () {
+              print('🔄 Manual refresh triggered from empty state');
+              _forceRefresh();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.withOpacity(0.3),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            label: const Text(
+              'Force Refresh',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -549,7 +754,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                property['houseType'] ?? 'Property',
+                                property['houseType'] ?? property['propertyType'] ?? 'Property',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
@@ -578,13 +783,14 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          '${property['city'] ?? ''}, ${property['region'] ?? ''}',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
-                            fontSize: 14,
+                        if (property['city'] != null || property['region'] != null)
+                          Text(
+                            '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
@@ -602,13 +808,6 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                               Icons.bathtub,
                               '${property['bathrooms'] ?? 0} Baths',
                             ),
-                            if (property['totalRooms'] != null) ...[
-                              const SizedBox(width: 16),
-                              _buildPropertyFeature(
-                                Icons.room,
-                                '${property['totalRooms']} Rooms',
-                              ),
-                            ],
                           ],
                         ),
                         const SizedBox(height: 16),

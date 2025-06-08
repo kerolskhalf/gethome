@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 import 'map_screen.dart';
 
 class EnhancedAddPropertyScreen extends StatefulWidget {
@@ -24,16 +25,13 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
 
-  // Multiple images support
-  List<String> _selectedImagePaths = [];
+  // Single image support (matching API)
+  String? _selectedImagePath;
 
   // AI Price Prediction
   Map<String, dynamic>? _pricePrediction;
   bool _isPredictingPrice = false;
   double? _selectedPrice;
-
-  // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
 
   // Form controllers
   late final TextEditingController _sizeController;
@@ -44,7 +42,6 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   late final TextEditingController _cityController;
   late final TextEditingController _priceController;
   late final TextEditingController _pricePerM2Controller;
-  late final TextEditingController _descriptionController;
 
   late String _houseType;
   late int _status;
@@ -60,36 +57,66 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     super.initState();
     _initializeControllers();
     _userId = UserSession.getCurrentUserId();
+
+    // Validate user session
+    if (_userId <= 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showErrorMessage('Invalid user session. Please login again.');
+        Navigator.pop(context);
+      });
+    }
   }
 
   void _initializeControllers() {
-    _sizeController = TextEditingController(text: widget.propertyToEdit?['size']?.toString() ?? '');
-    _bedroomsController = TextEditingController(text: widget.propertyToEdit?['bedrooms']?.toString() ?? '');
-    _bathroomsController = TextEditingController(text: widget.propertyToEdit?['bathrooms']?.toString() ?? '');
-    _totalRoomsController = TextEditingController(text: widget.propertyToEdit?['totalRooms']?.toString() ?? '');
-    _regionController = TextEditingController(text: widget.propertyToEdit?['region'] ?? '');
-    _cityController = TextEditingController(text: widget.propertyToEdit?['city'] ?? '');
-    _priceController = TextEditingController(text: widget.propertyToEdit?['price']?.toString() ?? '');
-    _pricePerM2Controller = TextEditingController(text: widget.propertyToEdit?['pricePerM2']?.toString() ?? '');
-    _descriptionController = TextEditingController(text: widget.propertyToEdit?['description'] ?? '');
+    // Initialize controllers with safe null checks
+    _sizeController = TextEditingController(
+        text: widget.propertyToEdit?['size']?.toString() ?? ''
+    );
+    _bedroomsController = TextEditingController(
+        text: widget.propertyToEdit?['bedrooms']?.toString() ?? ''
+    );
+    _bathroomsController = TextEditingController(
+        text: widget.propertyToEdit?['bathrooms']?.toString() ?? ''
+    );
+    _totalRoomsController = TextEditingController(
+        text: widget.propertyToEdit?['totalRooms']?.toString() ?? ''
+    );
+    _regionController = TextEditingController(
+        text: widget.propertyToEdit?['region']?.toString() ?? ''
+    );
+    _cityController = TextEditingController(
+        text: widget.propertyToEdit?['city']?.toString() ?? ''
+    );
+    _priceController = TextEditingController(
+        text: widget.propertyToEdit?['price']?.toString() ?? ''
+    );
+    _pricePerM2Controller = TextEditingController(
+        text: widget.propertyToEdit?['pricePerM2']?.toString() ?? ''
+    );
 
-    _houseType = widget.propertyToEdit?['houseType'] ?? 'Apartment';
-    _status = widget.propertyToEdit?['status'] ?? 0;
-    _isHighFloor = widget.propertyToEdit?['isHighFloor'] ?? false;
+    // Initialize dropdowns with safe defaults
+    _houseType = widget.propertyToEdit?['houseType']?.toString() ?? 'Apartment';
+    _status = widget.propertyToEdit?['status'] as int? ?? 0;
+    _isHighFloor = widget.propertyToEdit?['isHighFloor'] as bool? ?? false;
 
-    // Initialize with existing images if editing
-    if (widget.propertyToEdit?['imagePaths'] != null) {
-      _selectedImagePaths = List<String>.from(widget.propertyToEdit!['imagePaths']);
-    } else if (widget.propertyToEdit?['imagePath'] != null) {
-      _selectedImagePaths = [widget.propertyToEdit!['imagePath']];
+    // Initialize with existing image if editing
+    final imagePath = widget.propertyToEdit?['imagePath']?.toString();
+    if (imagePath != null && imagePath.isNotEmpty) {
+      _selectedImagePath = imagePath;
     }
 
     // Initialize location if available
-    if (widget.propertyToEdit?['latitude'] != null && widget.propertyToEdit?['longitude'] != null) {
-      _selectedLocation = LatLng(
-        widget.propertyToEdit!['latitude'].toDouble(),
-        widget.propertyToEdit!['longitude'].toDouble(),
-      );
+    final latitude = widget.propertyToEdit?['latitude'];
+    final longitude = widget.propertyToEdit?['longitude'];
+    if (latitude != null && longitude != null) {
+      try {
+        _selectedLocation = LatLng(
+          double.parse(latitude.toString()),
+          double.parse(longitude.toString()),
+        );
+      } catch (e) {
+        _selectedLocation = null;
+      }
     }
   }
 
@@ -103,36 +130,31 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     _cityController.dispose();
     _priceController.dispose();
     _pricePerM2Controller.dispose();
-    _descriptionController.dispose();
     _pageController.dispose();
     super.dispose();
   }
 
-  // Multiple image picker
-  Future<void> _pickImages() async {
+  // Single image picker
+  Future<void> _pickImageFromGallery() async {
     try {
-      final List<XFile> images = await _picker.pickMultiImage(
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
         maxWidth: 1920,
         maxHeight: 1080,
         imageQuality: 85,
       );
 
-      if (images.isNotEmpty) {
+      if (image != null && image.path.isNotEmpty) {
         setState(() {
-          // Add new images to existing list (max 10 images)
-          for (final image in images) {
-            if (_selectedImagePaths.length < 10) {
-              _selectedImagePaths.add(image.path);
-            }
-          }
+          _selectedImagePath = image.path;
         });
       }
     } catch (e) {
-      _showErrorMessage('Failed to pick images: $e');
+      _showErrorMessage('Failed to pick image: $e');
     }
   }
 
-  Future<void> _pickSingleImage() async {
+  Future<void> _pickImageFromCamera() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
@@ -141,9 +163,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         imageQuality: 85,
       );
 
-      if (image != null && _selectedImagePaths.length < 10) {
+      if (image != null && image.path.isNotEmpty) {
         setState(() {
-          _selectedImagePaths.add(image.path);
+          _selectedImagePath = image.path;
         });
       }
     } catch (e) {
@@ -151,13 +173,13 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     }
   }
 
-  void _removeImage(int index) {
+  void _removeImage() {
     setState(() {
-      _selectedImagePaths.removeAt(index);
+      _selectedImagePath = null;
     });
   }
 
-  // AI Price Prediction
+  // AI Price Prediction (if available)
   Future<void> _predictPrice() async {
     if (!_canPredictPrice()) return;
 
@@ -175,11 +197,8 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       };
 
       final response = await http.post(
-        Uri.parse('$API_BASE_URL/api/ai/predict-price'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.predictPriceUrl),
+        headers: ApiConfig.headers,
         body: json.encode(requestBody),
       );
 
@@ -187,7 +206,6 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         final data = json.decode(response.body);
         setState(() {
           _pricePrediction = data;
-          // Set average price as default
           if (data['averagePrice'] != null) {
             _selectedPrice = data['averagePrice'].toDouble();
             _priceController.text = _selectedPrice!.toStringAsFixed(0);
@@ -196,30 +214,43 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         });
         _showSuccessMessage('Price prediction completed!');
       } else {
-        _showErrorMessage('Failed to predict price. Please try again.');
+        _showErrorMessage('Price prediction not available');
       }
     } catch (e) {
-      _showErrorMessage('Network error during price prediction: $e');
+      _showErrorMessage('Price prediction service unavailable');
     } finally {
       setState(() => _isPredictingPrice = false);
     }
   }
 
   bool _canPredictPrice() {
-    return _sizeController.text.isNotEmpty &&
-        _bedroomsController.text.isNotEmpty &&
-        _bathroomsController.text.isNotEmpty &&
-        _regionController.text.isNotEmpty &&
-        _cityController.text.isNotEmpty;
+    try {
+      return _sizeController.text.trim().isNotEmpty &&
+          _bedroomsController.text.trim().isNotEmpty &&
+          _bathroomsController.text.trim().isNotEmpty &&
+          _regionController.text.trim().isNotEmpty &&
+          _cityController.text.trim().isNotEmpty;
+    } catch (e) {
+      return false;
+    }
   }
 
   void _calculatePricePerM2() {
-    final price = double.tryParse(_priceController.text);
-    final size = int.tryParse(_sizeController.text);
+    try {
+      final priceText = _priceController.text.trim();
+      final sizeText = _sizeController.text.trim();
 
-    if (price != null && size != null && size > 0) {
-      final pricePerM2 = price / size;
-      _pricePerM2Controller.text = pricePerM2.toStringAsFixed(2);
+      if (priceText.isEmpty || sizeText.isEmpty) return;
+
+      final price = double.tryParse(priceText);
+      final size = int.tryParse(sizeText);
+
+      if (price != null && size != null && size > 0) {
+        final pricePerM2 = price / size;
+        _pricePerM2Controller.text = pricePerM2.toStringAsFixed(2);
+      }
+    } catch (e) {
+      // Don't show error to user, just skip calculation
     }
   }
 
@@ -243,67 +274,77 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       setState(() {
         _selectedLocation = result;
       });
-      // TODO: Reverse geocoding to get address
       _selectedAddress = 'Lat: ${result.latitude.toStringAsFixed(4)}, Lng: ${result.longitude.toStringAsFixed(4)}';
     }
   }
 
-  // Form submission
+  // Form submission matching exact API specification
   Future<void> _submitForm() async {
-    if (_currentPage < 2) {
-      _nextPage();
-      return;
-    }
-
-    // Validate final form
-    if (!_formKey.currentState!.validate()) return;
-    if (_selectedImagePaths.isEmpty) {
-      _showErrorMessage('Please add at least one property image');
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
     try {
-      final uri = widget.propertyToEdit != null
-          ? Uri.parse('$API_BASE_URL/api/properties/update/${widget.propertyToEdit!['id']}')
-          : Uri.parse('$API_BASE_URL/api/properties/add');
+      if (_currentPage < 2) {
+        _nextPage();
+        return;
+      }
 
-      final request = http.MultipartRequest(
-        widget.propertyToEdit != null ? 'PUT' : 'POST',
-        uri,
-      );
+      // Validate final form
+      if (!_formKey.currentState!.validate()) return;
+      if (_selectedImagePath == null) {
+        _showErrorMessage('Please add at least one property image');
+        return;
+      }
 
-      // Add headers
-      request.headers.addAll({
-        'Accept': '*/*',
-      });
+      setState(() => _isLoading = true);
+
+      // Handle URI creation with proper null checks
+      Uri uri;
+      String httpMethod;
+
+      if (widget.propertyToEdit != null) {
+        final propertyId = widget.propertyToEdit?['id'];
+        if (propertyId == null) {
+          _showErrorMessage('Error: Property ID is missing');
+          setState(() => _isLoading = false);
+          return;
+        }
+        uri = Uri.parse(ApiConfig.updatePropertyUrl(propertyId));
+        httpMethod = 'PUT';
+      } else {
+        uri = Uri.parse(ApiConfig.addPropertyUrl);
+        httpMethod = 'POST';
+      }
+
+      final request = http.MultipartRequest(httpMethod, uri);
 
       // Calculate price per m² if not provided
       if (_pricePerM2Controller.text.isEmpty) {
         _calculatePricePerM2();
       }
 
-      // Add form fields
-      Map<String, String> fields = {
+      // Validate user ID
+      if (_userId <= 0) {
+        _showErrorMessage('Error: Invalid user session. Please login again.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Add form fields exactly matching API specification
+      final fields = <String, String>{
+        // Required fields (marked with * in API)
         'HouseType': _houseType,
         'Size': _sizeController.text.trim(),
         'Bedrooms': _bedroomsController.text.trim(),
         'Bathrooms': _bathroomsController.text.trim(),
-        'Status': _status.toString(),
         'Region': _regionController.text.trim(),
         'City': _cityController.text.trim(),
         'Price': _priceController.text.trim(),
+
+        // Optional fields
+        'UserId': _userId.toString(),
+        'Status': _status.toString(),
         'IsHighFloor': _isHighFloor.toString(),
-        'Description': _descriptionController.text.trim(),
       };
 
-      // Add UserId only for new properties
-      if (widget.propertyToEdit == null) {
-        fields['UserId'] = _userId.toString();
-      }
-
-      // Add optional fields
+      // Add optional fields only if they have values
       if (_totalRoomsController.text.isNotEmpty) {
         fields['TotalRooms'] = _totalRoomsController.text.trim();
       }
@@ -311,21 +352,27 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         fields['PricePerM2'] = _pricePerM2Controller.text.trim();
       }
 
-      // Add location data
-      if (_selectedLocation != null) {
-        fields['Latitude'] = _selectedLocation!.latitude.toString();
-        fields['Longitude'] = _selectedLocation!.longitude.toString();
-      }
-
       request.fields.addAll(fields);
 
-      // Add multiple image files
-      for (int i = 0; i < _selectedImagePaths.length; i++) {
-        final imageFile = await http.MultipartFile.fromPath(
-          'Images', // Use 'Images' for multiple files
-          _selectedImagePaths[i],
-        );
-        request.files.add(imageFile);
+      // Add image file as ImagePath (single file as per API spec)
+      if (_selectedImagePath != null && _selectedImagePath!.isNotEmpty) {
+        // Verify file exists before adding
+        final file = File(_selectedImagePath!);
+        if (await file.exists()) {
+          final imageFile = await http.MultipartFile.fromPath(
+            'ImagePath', // Exact field name from API spec
+            _selectedImagePath!,
+          );
+          request.files.add(imageFile);
+        } else {
+          _showErrorMessage('Selected image file not found. Please select another image.');
+          setState(() => _isLoading = false);
+          return;
+        }
+      } else {
+        _showErrorMessage('Please select an image for your property');
+        setState(() => _isLoading = false);
+        return;
       }
 
       // Send request
@@ -347,10 +394,10 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         _handleApiError(response);
       }
 
-    } catch (e) {
+    } catch (e, stackTrace) {
       setState(() => _isLoading = false);
       if (mounted) {
-        _showErrorMessage('Network error. Please check your connection and try again.');
+        _showErrorMessage('An error occurred. Please try again.');
       }
     }
   }
@@ -377,7 +424,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         _showErrorMessage('Please check all required fields and try again.');
       }
     } else {
-      _showErrorMessage('Server error (${response.statusCode}). Please try again later.');
+      _showErrorMessage(ApiConfig.getErrorMessage(response.statusCode));
     }
   }
 
@@ -449,7 +496,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     });
                   },
                   children: [
-                    _buildImagesPage(),
+                    _buildImagePage(),
                     _buildBasicInfoPage(),
                     _buildPriceAndLocationPage(),
                   ],
@@ -518,14 +565,14 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     );
   }
 
-  Widget _buildImagesPage() {
+  Widget _buildImagePage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Property Images',
+            'Property Image',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -534,7 +581,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Add up to 10 high-quality images of your property',
+            'Add a high-quality image of your property',
             style: TextStyle(
               color: Colors.white.withOpacity(0.7),
               fontSize: 14,
@@ -542,118 +589,93 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Image grid
-          if (_selectedImagePaths.isNotEmpty) ...[
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 1,
+          // Current image display
+          if (_selectedImagePath != null && _selectedImagePath!.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              height: 300,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.white.withOpacity(0.2)),
               ),
-              itemCount: _selectedImagePaths.length,
-              itemBuilder: (context, index) {
-                return Stack(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(color: Colors.white.withOpacity(0.2)),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(15),
-                        child: Image.file(
-                          File(_selectedImagePaths[index]),
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: GestureDetector(
-                        onTap: () => _removeImage(index),
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.8),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.close,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (index == 0)
-                      Positioned(
-                        bottom: 8,
-                        left: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Main',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(15),
+                    child: FutureBuilder<bool>(
+                      future: File(_selectedImagePath!).exists(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasData && snapshot.data == true) {
+                          return Image.file(
+                            File(_selectedImagePath!),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.grey[300],
+                                child: const Center(
+                                  child: Icon(Icons.error, size: 50, color: Colors.grey),
+                                ),
+                              );
+                            },
+                          );
+                        } else {
+                          return Container(
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: CircularProgressIndicator(),
                             ),
-                          ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: _removeImage,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.8),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
-                  ],
-                );
-              },
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
           ],
 
           // Add image buttons
-          if (_selectedImagePaths.length < 10) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _buildImageButton(
-                    'Gallery',
-                    Icons.photo_library,
-                    _pickImages,
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: _buildImageButton(
+                  'Gallery',
+                  Icons.photo_library,
+                  _pickImageFromGallery,
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildImageButton(
-                    'Camera',
-                    Icons.camera_alt,
-                    _pickSingleImage,
-                  ),
-                ),
-              ],
-            ),
-          ],
-
-          if (_selectedImagePaths.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Text(
-              '${_selectedImagePaths.length}/10 images added',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 14,
               ),
-            ),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildImageButton(
+                  'Camera',
+                  Icons.camera_alt,
+                  _pickImageFromCamera,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -709,11 +731,11 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             ),
             const SizedBox(height: 20),
 
-            // House Type
+            // House Type (Required)
             _buildDropdown(),
             const SizedBox(height: 16),
 
-            // Size
+            // Size (Required)
             _buildTextField(
               controller: _sizeController,
               label: 'Size (m²) *',
@@ -727,7 +749,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Bedrooms and Bathrooms
+            // Bedrooms and Bathrooms (Required)
             Row(
               children: [
                 Expanded(
@@ -761,7 +783,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Total Rooms
+            // Total Rooms (Optional)
             _buildTextField(
               controller: _totalRoomsController,
               label: 'Total Rooms',
@@ -775,18 +797,6 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
             // Status Dropdown
             _buildStatusDropdown(),
-            const SizedBox(height: 16),
-
-            // Description
-            _buildTextField(
-              controller: _descriptionController,
-              label: 'Description',
-              maxLines: 3,
-              validator: (value) {
-                if (value?.isEmpty ?? true) return 'Description is required';
-                return null;
-              },
-            ),
           ],
         ),
       ),
@@ -809,7 +819,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Location section
+          // Location section (Required)
           Row(
             children: [
               Expanded(
@@ -837,7 +847,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Location picker
+          // Location picker (Optional)
           GestureDetector(
             onTap: _selectLocation,
             child: Container(
@@ -858,7 +868,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     child: Text(
                       _selectedLocation != null
                           ? _selectedAddress ?? 'Location selected'
-                          : 'Select location on map',
+                          : 'Select location on map (optional)',
                       style: TextStyle(
                         color: _selectedLocation != null
                             ? Colors.white
@@ -878,7 +888,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 20),
 
-          // AI Price Prediction
+          // AI Price Prediction (Optional)
           if (_canPredictPrice()) ...[
             Container(
               padding: const EdgeInsets.all(16),
@@ -909,7 +919,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Get an AI-powered price estimate based on your property details',
+                    'Get an AI-powered price estimate',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
                       fontSize: 14,
@@ -962,7 +972,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Price Prediction Results',
+                    'Predicted Price Range',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -974,9 +984,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _buildPriceOption(
-                        'Lowest',
+                        'Low',
                         _pricePrediction!['lowestPrice']?.toDouble() ?? 0.0,
-                        Colors.red.shade300,
+                        Colors.orange.shade300,
                       ),
                       _buildPriceOption(
                         'Average',
@@ -984,7 +994,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                         Colors.blue.shade300,
                       ),
                       _buildPriceOption(
-                        'Highest',
+                        'High',
                         _pricePrediction!['highestPrice']?.toDouble() ?? 0.0,
                         Colors.green.shade300,
                       ),
@@ -996,7 +1006,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             const SizedBox(height: 16),
           ],
 
-          // Manual price input
+          // Manual price input (Required)
           Row(
             children: [
               Expanded(
@@ -1062,7 +1072,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             const SizedBox(height: 4),
             Text(
               '\$${price.toStringAsFixed(0)}',
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 14,
                 fontWeight: FontWeight.bold,

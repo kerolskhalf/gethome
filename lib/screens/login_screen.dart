@@ -23,7 +23,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
-  bool _showRoleOverride = false; // For debugging role issues
 
   @override
   void dispose() {
@@ -63,25 +62,44 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         print('✅ Login successful!');
-        print('📊 Available response fields: ${data.keys.toList()}');
+        print('📊 Response data keys: ${data.keys.toList()}');
 
-        // Handle different possible role field names and values
-        String userRole = 'buyer'; // default role
-
-        // Try different possible field names for role
-        if (data.containsKey('role')) {
-          userRole = data['role'].toString().toLowerCase();
-        } else if (data.containsKey('userType')) {
-          userRole = data['userType'].toString().toLowerCase();
-        } else if (data.containsKey('accountType')) {
-          userRole = data['accountType'].toString().toLowerCase();
-        } else if (data.containsKey('userRole')) {
-          userRole = data['userRole'].toString().toLowerCase();
-        } else if (data.containsKey('type')) {
-          userRole = data['type'].toString().toLowerCase();
+        // Extract user ID - try multiple possible field names
+        int? userId;
+        if (data['userId'] != null) {
+          userId = int.tryParse(data['userId'].toString());
+        } else if (data['id'] != null) {
+          userId = int.tryParse(data['id'].toString());
+        } else if (data['user'] != null && data['user']['id'] != null) {
+          userId = int.tryParse(data['user']['id'].toString());
+        } else if (data['user'] != null && data['user']['userId'] != null) {
+          userId = int.tryParse(data['user']['userId'].toString());
         }
 
-        print('🎭 Detected role: $userRole');
+        if (userId == null) {
+          print('⚠️ Warning: No valid userId found in response, using fallback');
+          userId = 1; // Use 1 instead of 123 as fallback
+        }
+
+        print('👤 Extracted User ID: $userId');
+
+        // Extract user role - try multiple possible field names
+        String userRole = 'buyer'; // default role
+        if (data['role'] != null) {
+          userRole = data['role'].toString().toLowerCase();
+        } else if (data['userType'] != null) {
+          userRole = data['userType'].toString().toLowerCase();
+        } else if (data['accountType'] != null) {
+          userRole = data['accountType'].toString().toLowerCase();
+        } else if (data['userRole'] != null) {
+          userRole = data['userRole'].toString().toLowerCase();
+        } else if (data['type'] != null) {
+          userRole = data['type'].toString().toLowerCase();
+        } else if (data['user'] != null && data['user']['role'] != null) {
+          userRole = data['user']['role'].toString().toLowerCase();
+        }
+
+        print('🎭 Extracted role: $userRole');
 
         // Normalize role values
         if (userRole.contains('buy')) {
@@ -96,66 +114,91 @@ class _LoginScreenState extends State<LoginScreen> {
 
         print('🎭 Normalized role: $userRole');
 
+        // Extract user name
+        String fullName = 'User';
+        if (data['fullName'] != null && data['fullName'].toString().isNotEmpty) {
+          fullName = data['fullName'].toString();
+        } else if (data['name'] != null && data['name'].toString().isNotEmpty) {
+          fullName = data['name'].toString();
+        } else if (data['user'] != null && data['user']['fullName'] != null) {
+          fullName = data['user']['fullName'].toString();
+        } else if (data['user'] != null && data['user']['name'] != null) {
+          fullName = data['user']['name'].toString();
+        }
+
+        print('📝 Extracted name: $fullName');
+
         // Store user data globally using UserSession
-        UserSession.setCurrentUser({
-          'userId': data['userId'] ?? data['id'] ?? 123, // fallback ID
-          'fullName': data['fullName'] ?? data['name'] ?? 'User',
-          'email': data['email'] ?? _emailController.text.trim(),
+        final userData = {
+          'userId': userId,
+          'fullName': fullName,
+          'email': data['email'] ?? data['user']?['email'] ?? _emailController.text.trim(),
           'role': userRole,
-          'phoneNumber': data['phoneNumber'] ?? data['phone'],
-          'dateOfBirth': data['dateOfBirth'],
-          'token': data['token'] ?? data['accessToken'], // JWT token variations
-        });
+          'phoneNumber': data['phoneNumber'] ?? data['phone'] ?? data['user']?['phoneNumber'],
+          'dateOfBirth': data['dateOfBirth'] ?? data['user']?['dateOfBirth'],
+          'token': data['token'] ?? data['accessToken'] ?? data['jwt'],
+        };
 
-        final String fullName = UserSession.getCurrentUserName();
-        final int userId = UserSession.getCurrentUserId();
+        UserSession.setCurrentUser(userData);
 
-        print('👤 User stored: $fullName (ID: $userId, Role: $userRole)');
+        print('👤 User stored successfully:');
+        print('   - ID: ${UserSession.getCurrentUserId()}');
+        print('   - Name: ${UserSession.getCurrentUserName()}');
+        print('   - Email: ${UserSession.getCurrentUserEmail()}');
+        print('   - Role: ${UserSession.getCurrentUserRole()}');
+
+        // Validate session
+        if (!UserSession.validateSession()) {
+          print('⚠️ Warning: Session validation failed');
+          _showErrorMessage('Login data incomplete. Please try again.');
+          return;
+        }
 
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Welcome back, $fullName!'),
+            content: Text('Welcome back, ${UserSession.getDisplayName()}!'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
         );
 
         // Navigate based on role
-        if (userRole == 'buyer') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const BuyerDashboardScreen(),
-            ),
-          );
-        } else if (userRole == 'seller') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const SellerDashboardScreen(),
-            ),
-          );
-        } else {
-          // Handle unknown role - default to buyer
-          UserSession.setCurrentUser({
-            ...UserSession.getCurrentUser()!,
-            'role': 'buyer',
-          });
+        await Future.delayed(const Duration(milliseconds: 500));
 
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const BuyerDashboardScreen(),
-            ),
-          );
+        if (mounted) {
+          if (userRole == 'buyer') {
+            print('🛒 Navigating to Buyer Dashboard');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BuyerDashboardScreen(),
+              ),
+            );
+          } else if (userRole == 'seller') {
+            print('🏠 Navigating to Seller Dashboard');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SellerDashboardScreen(),
+              ),
+            );
+          } else {
+            print('❓ Unknown role, defaulting to Buyer Dashboard');
+            // Update role to buyer for unknown roles
+            UserSession.updateUserRole('buyer');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BuyerDashboardScreen(),
+              ),
+            );
+          }
         }
 
       } else if (response.statusCode == 400) {
-        // Handle validation errors
         _handle400ValidationError(response.body);
       } else if (response.statusCode == 401) {
-        // Handle unauthorized (wrong email/password)
         try {
           final errorData = json.decode(response.body);
           _showErrorMessage(errorData['message'] ?? 'Invalid email or password');
@@ -167,7 +210,6 @@ class _LoginScreenState extends State<LoginScreen> {
       } else if (response.statusCode == 422) {
         _showErrorMessage('Invalid data format. Please check your inputs.');
       } else {
-        // Handle other errors
         try {
           final errorData = json.decode(response.body);
           _showErrorMessage(errorData['message'] ?? 'Server error (${response.statusCode}). Please try again later.');
@@ -189,7 +231,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final errorData = json.decode(responseBody);
 
       if (errorData.containsKey('errors')) {
-        // Handle validation errors object
         final errors = errorData['errors'] as Map<String, dynamic>;
         final List<String> errorMessages = [];
 
@@ -247,24 +288,24 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _debugLoginAs(String role) {
-    // For testing purposes - bypass API and login directly with specified role
-    UserSession.setCurrentUser({
-      'userId': 999, // Test user ID
-      'fullName': 'Test ${role.toUpperCase()}',
-      'email': _emailController.text.trim().isNotEmpty
-          ? _emailController.text.trim()
-          : 'test@example.com',
+  // Demo login for testing
+  void _demoLogin(String role) {
+    final userData = {
+      'userId': role == 'seller' ? 1 : 2,
+      'fullName': 'Demo ${role.toUpperCase()}',
+      'email': 'demo${role}@example.com',
       'role': role,
       'phoneNumber': '+1234567890',
       'dateOfBirth': DateTime.now().subtract(const Duration(days: 365 * 25)).toIso8601String(),
-      'token': 'debug_token_${role}_${DateTime.now().millisecondsSinceEpoch}',
-    });
+      'token': 'demo_token_${role}_${DateTime.now().millisecondsSinceEpoch}',
+    };
+
+    UserSession.setCurrentUser(userData);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Debug login as $role successful!'),
-        backgroundColor: Colors.orange,
+        content: Text('Demo login as $role successful!'),
+        backgroundColor: Colors.blue,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -282,7 +323,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // Email validation function
   String? _validateEmail(String? value) {
     if (value?.isEmpty ?? true) {
       return 'Please enter your email';
@@ -293,7 +333,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return 'Email cannot be empty';
     }
 
-    // Basic email format validation
     final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
     if (!emailRegex.hasMatch(trimmedValue)) {
       return 'Please enter a valid email address';
@@ -302,7 +341,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  // Password validation function
   String? _validatePassword(String? value) {
     if (value?.isEmpty ?? true) {
       return 'Please enter your password';
@@ -390,6 +428,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     _buildWelcomeSection(),
                     const SizedBox(height: 40),
                     _buildLoginForm(),
+                    const SizedBox(height: 20),
+                    _buildDemoButtons(),
                   ],
                 ),
               ),
@@ -414,41 +454,17 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           child: Column(
             children: [
-              // App Logo/Icon with debug mode toggle
-              GestureDetector(
-                onLongPress: () {
-                  setState(() {
-                    _showRoleOverride = !_showRoleOverride;
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                          _showRoleOverride
-                              ? 'Debug mode enabled - role override available'
-                              : 'Debug mode disabled'
-                      ),
-                      backgroundColor: _showRoleOverride ? Colors.orange : Colors.grey,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(_showRoleOverride ? 0.2 : 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _showRoleOverride
-                          ? Colors.orange.withOpacity(0.5)
-                          : Colors.white.withOpacity(0.2),
-                      width: _showRoleOverride ? 2 : 1,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.home_work,
-                    size: 48,
-                    color: Colors.white,
-                  ),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                ),
+                child: const Icon(
+                  Icons.home_work,
+                  size: 48,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 20),
@@ -559,56 +575,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 30),
 
-                // Debug: Role Override (for testing)
-                if (_showRoleOverride) ...[
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Debug Mode: Force Role Selection',
-                          style: TextStyle(
-                            color: Colors.orange,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => _debugLoginAs('buyer'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue.withOpacity(0.3),
-                                ),
-                                child: const Text('Login as Buyer', style: TextStyle(color: Colors.white)),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => _debugLoginAs('seller'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green.withOpacity(0.3),
-                                ),
-                                child: const Text('Login as Seller', style: TextStyle(color: Colors.white)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-
                 _buildLoginButton(),
                 const SizedBox(height: 20),
                 _buildRegisterLink(),
@@ -616,6 +582,57 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDemoButtons() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Demo Login (For Testing)',
+            style: TextStyle(
+              color: Colors.orange.shade300,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _demoLogin('buyer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.withOpacity(0.3),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.search, color: Colors.white),
+                  label: const Text('Demo Buyer', style: TextStyle(color: Colors.white)),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _demoLogin('seller'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.withOpacity(0.3),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.sell, color: Colors.white),
+                  label: const Text('Demo Seller', style: TextStyle(color: Colors.white)),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
