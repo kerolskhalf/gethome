@@ -178,8 +178,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     return null;
   }
 
-
-
   Future<void> _selectDateOfBirth() async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
@@ -239,8 +237,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         'role': _selectedRole.toLowerCase(), // Add role to registration
       };
 
-      print('Registration request body: ${json.encode(requestBody)}'); // Debug log
-
       final response = await http.post(
         Uri.parse('$API_BASE_URL/api/auth/register'),
         headers: {
@@ -253,9 +249,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       setState(() => _isLoading = false);
 
       if (!mounted) return;
-
-      print('Registration response status: ${response.statusCode}'); // Debug log
-      print('Registration response body: ${response.body}'); // Debug log
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Successful registration
@@ -307,7 +300,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        print('Registration network error: $e'); // Debug log
         _showErrorMessage('Network error. Please check your internet connection and try again.');
       }
     }
@@ -373,8 +365,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       ),
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -665,8 +655,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     );
   }
 
-
-
   Widget _buildRoleDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -688,7 +676,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           ),
           child: Row(
             children: [
-
               const SizedBox(width: 12),
               Expanded(
                 child: DropdownButtonHideUnderline(
@@ -697,12 +684,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     isExpanded: true,
                     dropdownColor: const Color(0xFF234E70),
                     style: const TextStyle(color: Colors.white),
-                    items: [
-                      const DropdownMenuItem<String>(
+                    items: const [
+                      DropdownMenuItem<String>(
                         value: 'Buyer',
                         child: Text('Buyer - Looking for properties'),
                       ),
-                      const DropdownMenuItem<String>(
+                      DropdownMenuItem<String>(
                         value: 'Seller',
                         child: Text('Seller - Listing properties'),
                       ),

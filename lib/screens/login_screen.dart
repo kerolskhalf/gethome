@@ -7,6 +7,7 @@ import './registration_screen.dart';
 import './buyer_dashboard_screen.dart';
 import './seller_dashboard_screen.dart';
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -23,9 +24,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   bool _rememberMe = false;
   bool _showRoleOverride = false; // For debugging role issues
-
-  // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
 
   @override
   void dispose() {
@@ -45,14 +43,13 @@ class _LoginScreenState extends State<LoginScreen> {
         'password': _passwordController.text,
       };
 
-      print('Login request body: ${json.encode(requestBody)}'); // Debug log
+      print('🔄 Attempting login...');
+      print('📡 Login URL: ${ApiConfig.loginUrl}');
+      print('📧 Email: ${_emailController.text.trim()}');
 
       final response = await http.post(
-        Uri.parse('$API_BASE_URL/api/auth/login'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.loginUrl),
+        headers: ApiConfig.headers,
         body: json.encode(requestBody),
       );
 
@@ -60,17 +57,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      print('Login response status: ${response.statusCode}'); // Debug log
-      print('Login response body: ${response.body}'); // Debug log
+      print('📡 Login Response Status: ${response.statusCode}');
+      print('📡 Login Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
-        // Debug: Print the entire API response to see what we're getting
-        print('=== LOGIN API RESPONSE DEBUG ===');
-        print('Full response data: ${json.encode(data)}');
-        print('Available fields: ${data.keys.toList()}');
-        print('================================');
+        print('✅ Login successful!');
+        print('📊 Available response fields: ${data.keys.toList()}');
 
         // Handle different possible role field names and values
         String userRole = 'buyer'; // default role
@@ -78,29 +71,17 @@ class _LoginScreenState extends State<LoginScreen> {
         // Try different possible field names for role
         if (data.containsKey('role')) {
           userRole = data['role'].toString().toLowerCase();
-          print('Found role field: ${data['role']}');
         } else if (data.containsKey('userType')) {
           userRole = data['userType'].toString().toLowerCase();
-          print('Found userType field: ${data['userType']}');
         } else if (data.containsKey('accountType')) {
           userRole = data['accountType'].toString().toLowerCase();
-          print('Found accountType field: ${data['accountType']}');
         } else if (data.containsKey('userRole')) {
           userRole = data['userRole'].toString().toLowerCase();
-          print('Found userRole field: ${data['userRole']}');
         } else if (data.containsKey('type')) {
           userRole = data['type'].toString().toLowerCase();
-          print('Found type field: ${data['type']}');
-        } else {
-          print('No role field found in API response!');
-
-          // If no role field is found, show a dialog to let user choose
-          if (mounted) {
-            userRole = await _showRoleSelectionDialog() ?? 'buyer';
-          }
         }
 
-        print('Raw role value: $userRole');
+        print('🎭 Detected role: $userRole');
 
         // Normalize role values
         if (userRole.contains('buy')) {
@@ -113,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
           userRole = 'seller';
         }
 
-        print('Normalized role: $userRole');
+        print('🎭 Normalized role: $userRole');
 
         // Store user data globally using UserSession
         UserSession.setCurrentUser({
@@ -129,12 +110,12 @@ class _LoginScreenState extends State<LoginScreen> {
         final String fullName = UserSession.getCurrentUserName();
         final int userId = UserSession.getCurrentUserId();
 
-        print('Login successful for user: $fullName, Role: $userRole, ID: $userId');
+        print('👤 User stored: $fullName (ID: $userId, Role: $userRole)');
 
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Welcome back, $fullName! (Role: $userRole)'),
+            content: Text('Welcome back, $fullName!'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
@@ -156,31 +137,18 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         } else {
-          // For unknown roles, show selection dialog
-          final selectedRole = await _showRoleSelectionDialog();
-          if (selectedRole != null && mounted) {
-            // Update the stored role
-            UserSession.setCurrentUser({
-              ...UserSession.getCurrentUser()!,
-              'role': selectedRole,
-            });
+          // Handle unknown role - default to buyer
+          UserSession.setCurrentUser({
+            ...UserSession.getCurrentUser()!,
+            'role': 'buyer',
+          });
 
-            if (selectedRole == 'buyer') {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const BuyerDashboardScreen(),
-                ),
-              );
-            } else {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SellerDashboardScreen(),
-                ),
-              );
-            }
-          }
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const BuyerDashboardScreen(),
+            ),
+          );
         }
 
       } else if (response.statusCode == 400) {
@@ -210,8 +178,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
+        print('❌ Login network error: $e');
         _showErrorMessage('Network error. Please check your connection and try again.');
-        print('Login error: $e');
       }
     }
   }
@@ -312,61 +280,6 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (context) => const SellerDashboardScreen()),
       );
     }
-  }
-
-  Future<String?> _showRoleSelectionDialog() async {
-    return await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF234E70),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Text(
-          'Select Your Role',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'The system couldn\'t detect your role. Please select whether you want to login as a buyer or seller:',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'buyer'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-
-                ],
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'seller'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.sell, color: Colors.white, size: 16),
-                  SizedBox(width: 8),
-                  Text('Seller', style: TextStyle(color: Colors.white)),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   // Email validation function
@@ -675,7 +588,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blue.withOpacity(0.3),
                                 ),
-                                child: const Text('Login as Buyer'),
+                                child: const Text('Login as Buyer', style: TextStyle(color: Colors.white)),
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -685,7 +598,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green.withOpacity(0.3),
                                 ),
-                                child: const Text('Login as Seller'),
+                                child: const Text('Login as Seller', style: TextStyle(color: Colors.white)),
                               ),
                             ),
                           ],

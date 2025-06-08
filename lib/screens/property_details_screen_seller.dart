@@ -138,7 +138,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AddPropertyScreen(
+        builder: (context) => EnhancedAddPropertyScreen(
           propertyToEdit: widget.property,
         ),
       ),

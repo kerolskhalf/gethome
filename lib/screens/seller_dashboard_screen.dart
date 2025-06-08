@@ -69,7 +69,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
   void _addNewProperty() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const AddPropertyScreen()),
+      MaterialPageRoute(builder: (context) => const EnhancedAddPropertyScreen()),
     );
 
     if (result != null && mounted) {
