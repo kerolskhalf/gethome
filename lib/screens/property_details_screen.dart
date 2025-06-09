@@ -1,6 +1,5 @@
 // lib/screens/property_details_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/user_session.dart';
@@ -19,7 +18,56 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   bool _isSaved = false;
   bool _isLoadingContact = false;
   bool _isCreatingViewingRequest = false;
+  bool _isTogglingFavorite = false;
   Map<String, dynamic>? _contactInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfFavorite();
+  }
+
+  // FIX: Add method to check if property is in favorites
+  Future<void> _checkIfFavorite() async {
+    // This would typically check the favorites API
+    // For now, we'll keep it simple
+    setState(() {
+      _isSaved = false; // Default state
+    });
+  }
+
+  // FIX: Add method to toggle favorite status
+  Future<void> _toggleFavorite() async {
+    if (_isTogglingFavorite) return;
+
+    setState(() => _isTogglingFavorite = true);
+
+    try {
+      final requestBody = {
+        'userId': UserSession.getCurrentUserId(),
+        'propertyId': widget.property['id'],
+      };
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.toggleFavoriteUrl),
+        headers: ApiConfig.headers,
+        body: json.encode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isSaved = !_isSaved;
+        });
+        _showSuccessMessage(_isSaved ? 'Added to favorites' : 'Removed from favorites');
+      } else {
+        _showErrorMessage('Failed to update favorites');
+      }
+    } catch (e) {
+      _showErrorMessage('Error updating favorites: $e');
+    } finally {
+      setState(() => _isTogglingFavorite = false);
+    }
+  }
 
   Future<void> _getSellerContact() async {
     final propertyId = widget.property['id'];
@@ -246,6 +294,43 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     return Colors.grey;
   }
 
+  // FIX: Add method to build property image widget with network image
+  Widget _buildPropertyImage() {
+    final imagePath = widget.property['imagePath'];
+
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 100, color: Colors.grey),
+        ),
+      );
+    }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 100, color: Colors.grey),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,15 +360,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 expandedHeight: 300,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  background: widget.property['imagePath'] != null
-                      ? Image.file(
-                    File(widget.property['imagePath']),
-                    fit: BoxFit.cover,
-                  )
-                      : Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.home, size: 100),
-                  ),
+                  background: _buildPropertyImage(), // FIX: Use network image
                 ),
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back),
@@ -291,18 +368,17 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 ),
                 actions: [
                   IconButton(
-                    icon: Icon(_isSaved ? Icons.favorite : Icons.favorite_border),
-                    onPressed: () {
-                      setState(() {
-                        _isSaved = !_isSaved;
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(_isSaved ? 'Added to favorites' : 'Removed from favorites'),
-                          backgroundColor: _isSaved ? Colors.green : Colors.grey,
-                        ),
-                      );
-                    },
+                    icon: _isTogglingFavorite
+                        ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                        : Icon(_isSaved ? Icons.favorite : Icons.favorite_border),
+                    onPressed: _isTogglingFavorite ? null : _toggleFavorite, // FIX: Use proper toggle function
                   ),
                 ],
               ),

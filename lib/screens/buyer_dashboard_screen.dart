@@ -5,6 +5,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'property_details_screen.dart';
 import 'property_comparison_screen.dart';
+import 'favorites_screen.dart';
+import 'map_screen.dart';
+import 'user_profile_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 import 'login_screen.dart';
@@ -42,6 +45,11 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   int _pageSize = 10;
   int _totalCount = 0;
 
+  // Responsive breakpoints
+  static const double mobileBreakpoint = 600;
+  static const double tabletBreakpoint = 900;
+  static const double desktopBreakpoint = 1200;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +60,36 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Get responsive values based on screen size
+  bool get isMobile => MediaQuery.of(context).size.width < mobileBreakpoint;
+  bool get isTablet => MediaQuery.of(context).size.width >= mobileBreakpoint && MediaQuery.of(context).size.width < tabletBreakpoint;
+  bool get isDesktop => MediaQuery.of(context).size.width >= tabletBreakpoint;
+
+  double get horizontalPadding {
+    if (isDesktop) return 40;
+    if (isTablet) return 24;
+    return 16;
+  }
+
+  double get verticalPadding {
+    if (isDesktop) return 32;
+    if (isTablet) return 20;
+    return 16;
+  }
+
+  int get crossAxisCount {
+    final width = MediaQuery.of(context).size.width;
+    if (width >= desktopBreakpoint) return 3;
+    if (width >= tabletBreakpoint) return 2;
+    return 1;
+  }
+
+  double get cardAspectRatio {
+    if (isDesktop) return 0.75;
+    if (isTablet) return 0.8;
+    return 0.85;
   }
 
   Future<void> _loadProperties() async {
@@ -307,36 +345,14 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           ),
         ),
       ),
-      floatingActionButton: _selectedForComparison.isNotEmpty
-          ? Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            onPressed: _clearSelection,
-            backgroundColor: Colors.grey.withOpacity(0.8),
-            heroTag: "clear",
-            child: const Icon(Icons.clear, color: Colors.white),
-          ),
-          const SizedBox(width: 8),
-          FloatingActionButton.extended(
-            onPressed: _startComparison,
-            backgroundColor: Colors.blue,
-            heroTag: "compare",
-            label: Text(
-              'Compare (${_selectedForComparison.length})',
-              style: const TextStyle(color: Colors.white),
-            ),
-            icon: const Icon(Icons.compare_arrows, color: Colors.white),
-          ),
-        ],
-      )
-          : null,
+      floatingActionButton: _buildFloatingActionButtons(),
+      bottomNavigationBar: isDesktop ? null : _buildBottomNavigationBar(),
     );
   }
 
   Widget _buildAppBar() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(horizontalPadding),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         border: Border(
@@ -350,85 +366,179 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           Row(
             children: [
               CircleAvatar(
+                radius: isMobile ? 20 : 24,
                 backgroundColor: Colors.white.withOpacity(0.2),
                 child: Text(
                   UserSession.getUserInitials(),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
+                    fontSize: isMobile ? 14 : 16,
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: isMobile ? 12 : 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Welcome, ${UserSession.getCurrentUserName()}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 20,
+                        fontSize: isMobile ? 16 : 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
                       'Find your dream home (${_filteredProperties.length} properties)',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white70,
-                        fontSize: 14,
+                        fontSize: isMobile ? 12 : 14,
                       ),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: Icon(
-                  _isFilterVisible ? Icons.close : Icons.filter_list,
-                  color: Colors.white,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _isFilterVisible = !_isFilterVisible;
-                  });
-                },
-                tooltip: 'Filters',
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: _loadProperties,
-                tooltip: 'Refresh',
-              ),
-              IconButton(
-                icon: const Icon(Icons.logout, color: Colors.white),
-                onPressed: _handleLogout,
-                tooltip: 'Logout',
-              ),
+              if (isDesktop) ..._buildDesktopActions(),
+              if (!isDesktop) ..._buildMobileActions(),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isMobile ? 12 : 16),
           _buildSearchBar(),
         ],
       ),
     );
   }
 
+  List<Widget> _buildDesktopActions() {
+    return [
+      IconButton(
+        icon: Icon(
+          _isFilterVisible ? Icons.close : Icons.filter_list,
+          color: Colors.white,
+          size: 24,
+        ),
+        onPressed: () {
+          setState(() {
+            _isFilterVisible = !_isFilterVisible;
+          });
+        },
+        tooltip: 'Filters',
+      ),
+      IconButton(
+        icon: const Icon(Icons.favorite, color: Colors.white, size: 24),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const FavoritesScreen()),
+        ),
+        tooltip: 'Favorites',
+      ),
+      IconButton(
+        icon: const Icon(Icons.map, color: Colors.white, size: 24),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const MapScreen()),
+        ),
+        tooltip: 'Map View',
+      ),
+      IconButton(
+        icon: const Icon(Icons.person, color: Colors.white, size: 24),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+        ),
+        tooltip: 'Profile',
+      ),
+      IconButton(
+        icon: const Icon(Icons.refresh, color: Colors.white, size: 24),
+        onPressed: _loadProperties,
+        tooltip: 'Refresh',
+      ),
+      IconButton(
+        icon: const Icon(Icons.logout, color: Colors.white, size: 24),
+        onPressed: _handleLogout,
+        tooltip: 'Logout',
+      ),
+    ];
+  }
+
+  List<Widget> _buildMobileActions() {
+    return [
+      IconButton(
+        icon: Icon(
+          _isFilterVisible ? Icons.close : Icons.filter_list,
+          color: Colors.white,
+          size: 20,
+        ),
+        onPressed: () {
+          setState(() {
+            _isFilterVisible = !_isFilterVisible;
+          });
+        },
+        tooltip: 'Filters',
+      ),
+      IconButton(
+        icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+        onPressed: _loadProperties,
+        tooltip: 'Refresh',
+      ),
+      PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+        color: const Color(0xFF234E70),
+        onSelected: (value) {
+          switch (value) {
+            case 'profile':
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+              );
+              break;
+            case 'logout':
+              _handleLogout();
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'profile',
+            child: Text('Profile', style: TextStyle(color: Colors.white)),
+          ),
+          const PopupMenuItem(
+            value: 'logout',
+            child: Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ];
+  }
+
   Widget _buildSearchBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(isMobile ? 25 : 30),
         border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
       child: TextField(
         controller: _searchController,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: isMobile ? 14 : 16,
+        ),
         decoration: InputDecoration(
           hintText: 'Search by location, property type...',
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+          hintStyle: TextStyle(
+            color: Colors.white.withOpacity(0.5),
+            fontSize: isMobile ? 14 : 16,
+          ),
           border: InputBorder.none,
-          icon: Icon(Icons.search, color: Colors.white.withOpacity(0.5)),
+          icon: Icon(
+            Icons.search,
+            color: Colors.white.withOpacity(0.5),
+            size: isMobile ? 20 : 24,
+          ),
         ),
         onChanged: _performSearch,
       ),
@@ -437,7 +547,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   Widget _buildFilterPanel() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(horizontalPadding),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         border: Border(
@@ -452,11 +562,11 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'Filters',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
+                  fontSize: isMobile ? 16 : 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -469,31 +579,44 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isMobile ? 12 : 16),
 
           // Location filters
-          Row(
-            children: [
-              Expanded(
-                child: _buildLocationFilter('City', _city, (value) {
+          if (isDesktop)
+            Row(
+              children: [
+                Expanded(
+                  child: _buildLocationFilter('City', _city, (value) {
+                    setState(() => _city = value);
+                  }),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildLocationFilter('Region', _region, (value) {
+                    setState(() => _region = value);
+                  }),
+                ),
+              ],
+            )
+          else
+            Column(
+              children: [
+                _buildLocationFilter('City', _city, (value) {
                   setState(() => _city = value);
                 }),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildLocationFilter('Region', _region, (value) {
+                const SizedBox(height: 16),
+                _buildLocationFilter('Region', _region, (value) {
                   setState(() => _region = value);
                 }),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ],
+            ),
+          SizedBox(height: isMobile ? 12 : 16),
 
-          const Text(
+          Text(
             'Price Range',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 16,
+              fontSize: isMobile ? 14 : 16,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -512,84 +635,26 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               });
             },
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isMobile ? 12 : 16),
 
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Min Bedrooms',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    DropdownButton<int>(
-                      value: _minBedrooms,
-                      isExpanded: true,
-                      dropdownColor: const Color(0xFF234E70),
-                      style: const TextStyle(color: Colors.white),
-                      items: [0, 1, 2, 3, 4, 5]
-                          .map((int value) {
-                        return DropdownMenuItem<int>(
-                          value: value,
-                          child: Text(value == 0 ? 'Any' : value.toString()),
-                        );
-                      }).toList(),
-                      onChanged: (int? value) {
-                        if (value != null) {
-                          setState(() {
-                            _minBedrooms = value;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Max Bedrooms',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    DropdownButton<int>(
-                      value: _maxBedrooms,
-                      isExpanded: true,
-                      dropdownColor: const Color(0xFF234E70),
-                      style: const TextStyle(color: Colors.white),
-                      items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                          .map((int value) {
-                        return DropdownMenuItem<int>(
-                          value: value,
-                          child: Text(value == 10 ? 'Any' : value.toString()),
-                        );
-                      }).toList(),
-                      onChanged: (int? value) {
-                        if (value != null) {
-                          setState(() {
-                            _maxBedrooms = value;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
+          if (isDesktop)
+            Row(
+              children: [
+                Expanded(child: _buildBedroomDropdown()),
+                const SizedBox(width: 16),
+                Expanded(child: _buildMaxBedroomDropdown()),
+              ],
+            )
+          else
+            Column(
+              children: [
+                _buildBedroomDropdown(),
+                const SizedBox(height: 16),
+                _buildMaxBedroomDropdown(),
+              ],
+            ),
+
+          SizedBox(height: isMobile ? 16 : 20),
 
           SizedBox(
             width: double.infinity,
@@ -597,16 +662,16 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               onPressed: _applyFilters,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white.withOpacity(0.2),
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: EdgeInsets.symmetric(vertical: isMobile ? 12 : 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
                 ),
               ),
-              child: const Text(
+              child: Text(
                 'Apply Filters',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 16,
+                  fontSize: isMobile ? 14 : 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -625,16 +690,22 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           label,
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
+            fontSize: isMobile ? 12 : 14,
           ),
         ),
         const SizedBox(height: 8),
         TextFormField(
           initialValue: value,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: isMobile ? 14 : 16,
+          ),
           decoration: InputDecoration(
             hintText: 'Enter $label',
-            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+            hintStyle: TextStyle(
+              color: Colors.white.withOpacity(0.5),
+              fontSize: isMobile ? 14 : 16,
+            ),
             filled: true,
             fillColor: Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
@@ -651,6 +722,84 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ),
           ),
           onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBedroomDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Min Bedrooms',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: isMobile ? 14 : 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        DropdownButton<int>(
+          value: _minBedrooms,
+          isExpanded: true,
+          dropdownColor: const Color(0xFF234E70),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: isMobile ? 14 : 16,
+          ),
+          items: [0, 1, 2, 3, 4, 5]
+              .map((int value) {
+            return DropdownMenuItem<int>(
+              value: value,
+              child: Text(value == 0 ? 'Any' : value.toString()),
+            );
+          }).toList(),
+          onChanged: (int? value) {
+            if (value != null) {
+              setState(() {
+                _minBedrooms = value;
+              });
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMaxBedroomDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Max Bedrooms',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: isMobile ? 14 : 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        DropdownButton<int>(
+          value: _maxBedrooms,
+          isExpanded: true,
+          dropdownColor: const Color(0xFF234E70),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: isMobile ? 14 : 16,
+          ),
+          items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+              .map((int value) {
+            return DropdownMenuItem<int>(
+              value: value,
+              child: Text(value == 10 ? 'Any' : value.toString()),
+            );
+          }).toList(),
+          onChanged: (int? value) {
+            if (value != null) {
+              setState(() {
+                _maxBedrooms = value;
+              });
+            }
+          },
         ),
       ],
     );
@@ -700,200 +849,225 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   }
 
   Widget _buildPropertyList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: _filteredProperties.length,
-      itemBuilder: (context, index) {
-        final property = _filteredProperties[index];
-        final propertyId = property['id'];
-        final isSelected = _selectedForComparison.contains(propertyId.toString());
+    if (isDesktop || isTablet) {
+      return Padding(
+        padding: EdgeInsets.all(horizontalPadding),
+        child: GridView.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: cardAspectRatio,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+          ),
+          itemCount: _filteredProperties.length,
+          itemBuilder: (context, index) {
+            final property = _filteredProperties[index];
+            return _buildPropertyCard(property);
+          },
+        ),
+      );
+    } else {
+      return ListView.builder(
+        padding: EdgeInsets.all(horizontalPadding),
+        itemCount: _filteredProperties.length,
+        itemBuilder: (context, index) {
+          final property = _filteredProperties[index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _buildPropertyCard(property),
+          );
+        },
+      );
+    }
+  }
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: GestureDetector(
-            onTap: () => _handlePropertyTap(property),
-            onLongPress: () => _handlePropertyLongPress(property),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isSelected ? Colors.blue : Colors.white.withOpacity(0.2),
-                  width: isSelected ? 2 : 1,
+  Widget _buildPropertyCard(Map<String, dynamic> property) {
+    final propertyId = property['id'];
+    final isSelected = _selectedForComparison.contains(propertyId.toString());
+
+    return GestureDetector(
+      onTap: () => _handlePropertyTap(property),
+      onLongPress: () => _handlePropertyLongPress(property),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? Colors.blue : Colors.white.withOpacity(0.2),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  height: isDesktop ? 180 : (isTablet ? 160 : 200),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: property['imagePath'] != null && property['imagePath'].isNotEmpty
+                      ? ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                    child: Image.file(
+                      File(property['imagePath']),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                    ),
+                  )
+                      : const Center(
+                    child: Icon(Icons.home, size: 50, color: Colors.grey),
+                  ),
                 ),
-              ),
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      Container(
-                        height: 200,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                        ),
-                        child: property['imagePath'] != null && property['imagePath'].isNotEmpty
-                            ? ClipRRect(
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                          child: Image.file(
-                            File(property['imagePath']),
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                        )
-                            : const Center(
-                          child: Icon(Icons.home, size: 50, color: Colors.grey),
+                if (isSelected)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(
+                        color: Colors.blue,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${_selectedForComparison.toList().indexOf(propertyId.toString()) + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (isSelected)
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: Colors.blue,
-                              shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.all(isMobile ? 12 : 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            property['houseType'] ?? 'Property',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isMobile ? 16 : 18,
+                              fontWeight: FontWeight.bold,
                             ),
-                            child: Text(
-                              '${_selectedForComparison.toList().indexOf(propertyId.toString()) + 1}',
-                              style: const TextStyle(
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            property['houseType'] ?? 'Property',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isMobile ? 12 : 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on,
+                          color: Colors.white.withOpacity(0.8),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: isMobile ? 12 : 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '\$${property['price'] ?? 0}',
+                              style: TextStyle(
                                 color: Colors.white,
+                                fontSize: isMobile ? 18 : 20,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                property['houseType'] ?? 'Property',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                property['houseType'] ?? 'Property',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on,
-                              color: Colors.white.withOpacity(0.8),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                            if (property['pricePerM2'] != null)
+                              Text(
+                                '\$${property['pricePerM2']} per m²',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.7),
+                                  fontSize: isMobile ? 10 : 12,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '\$${property['price'] ?? 0}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (property['pricePerM2'] != null)
-                                  Text(
-                                    '\$${property['pricePerM2']} per m²',
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.7),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildPropertyFeature(
-                              Icons.straighten,
-                              '${property['size'] ?? 0} m²',
-                            ),
-                            _buildPropertyFeature(
-                              Icons.king_bed,
-                              '${property['bedrooms'] ?? 0} Beds',
-                            ),
-                            _buildPropertyFeature(
-                              Icons.bathtub,
-                              '${property['bathrooms'] ?? 0} Baths',
-                            ),
                           ],
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildPropertyFeature(
+                          Icons.straighten,
+                          '${property['size'] ?? 0} m²',
+                        ),
+                        _buildPropertyFeature(
+                          Icons.king_bed,
+                          '${property['bedrooms'] ?? 0}',
+                        ),
+                        _buildPropertyFeature(
+                          Icons.bathtub,
+                          '${property['bathrooms'] ?? 0}',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildPropertyFeature(IconData icon, String text) {
-    return Row(
+    return Column(
       children: [
         Icon(
           icon,
           color: Colors.white.withOpacity(0.8),
-          size: 16,
+          size: isMobile ? 14 : 16,
         ),
         const SizedBox(width: 4),
         Text(
           text,
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
+            fontSize: isMobile ? 11 : 14,
           ),
         ),
       ],
@@ -928,6 +1102,123 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget? _buildFloatingActionButtons() {
+    if (_selectedForComparison.isEmpty) return null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isMobile) ...[
+          FloatingActionButton(
+            onPressed: _clearSelection,
+            backgroundColor: Colors.grey.withOpacity(0.8),
+            heroTag: "clear",
+            mini: true,
+            child: const Icon(Icons.clear, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.extended(
+            onPressed: _startComparison,
+            backgroundColor: Colors.blue,
+            heroTag: "compare",
+            label: Text(
+              'Compare (${_selectedForComparison.length})',
+              style: const TextStyle(color: Colors.white),
+            ),
+            icon: const Icon(Icons.compare_arrows, color: Colors.white),
+          ),
+        ] else ...[
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FloatingActionButton(
+                onPressed: _clearSelection,
+                backgroundColor: Colors.grey.withOpacity(0.8),
+                heroTag: "clear",
+                child: const Icon(Icons.clear, color: Colors.white),
+              ),
+              const SizedBox(width: 8),
+              FloatingActionButton.extended(
+                onPressed: _startComparison,
+                backgroundColor: Colors.blue,
+                heroTag: "compare",
+                label: Text(
+                  'Compare (${_selectedForComparison.length})',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                icon: const Icon(Icons.compare_arrows, color: Colors.white),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget? _buildBottomNavigationBar() {
+    if (isDesktop) return null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        border: Border(
+          top: BorderSide(color: Colors.white.withOpacity(0.2)),
+        ),
+      ),
+      child: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: Colors.transparent,
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white.withOpacity(0.6),
+        elevation: 0,
+        currentIndex: 0,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.favorite),
+            label: 'Favorites',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map),
+            label: 'Map',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+        onTap: (index) {
+          switch (index) {
+            case 0:
+            // Already on home
+              break;
+            case 1:
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const FavoritesScreen()),
+              );
+              break;
+            case 2:
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MapScreen()),
+              );
+              break;
+            case 3:
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+              );
+              break;
+          }
+        },
       ),
     );
   }

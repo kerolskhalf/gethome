@@ -1,10 +1,10 @@
 // lib/screens/seller_dashboard_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
+import 'viewing_requests_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 import 'login_screen.dart';
@@ -200,6 +200,18 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     );
   }
 
+  void _viewPropertyRequests(int propertyId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ViewingRequestsScreen(
+          isSellerView: true,
+          propertyId: propertyId,
+        ),
+      ),
+    );
+  }
+
   String _getStatusText(dynamic status) {
     if (status == 0 || status == 'Available') return 'Available';
     if (status == 1 || status == 'NotAvailable') return 'Not Available';
@@ -210,6 +222,42 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     if (status == 0 || status == 'Available') return Colors.green;
     if (status == 1 || status == 'NotAvailable') return Colors.red;
     return Colors.grey;
+  }
+
+  // FIX: Add method to build property image widget
+  Widget _buildPropertyImage(String? imagePath) {
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 50, color: Colors.grey),
+        ),
+      );
+    }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -309,6 +357,18 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.calendar_today, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ViewingRequestsScreen(isSellerView: true),
+                ),
+              );
+            },
+            tooltip: 'All Viewing Requests',
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -461,21 +521,11 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                             top: Radius.circular(20),
                           ),
                         ),
-                        child: property['imagePath'] != null &&
-                            property['imagePath'].isNotEmpty
-                            ? ClipRRect(
+                        child: ClipRRect(
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(20),
                           ),
-                          child: Image.file(
-                            File(property['imagePath']),
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                        )
-                            : const Center(
-                          child: Icon(Icons.home,
-                              size: 50, color: Colors.grey),
+                          child: _buildPropertyImage(property['imagePath']), // FIX: Use network image
                         ),
                       ),
                       // Status badge
@@ -599,6 +649,12 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                             ),
                             Row(
                               children: [
+                                _buildActionButton(
+                                  Icons.remove_red_eye,
+                                  'Requests',
+                                  onTap: () => _viewPropertyRequests(property['id']),
+                                ),
+                                const SizedBox(width: 8),
                                 _buildActionButton(
                                   Icons.edit,
                                   'Edit',

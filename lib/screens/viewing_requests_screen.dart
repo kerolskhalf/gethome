@@ -38,10 +38,10 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       String endpoint;
       if (widget.isSellerView && widget.propertyId != null) {
         // Get viewing requests for specific property (seller view)
-        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/property/${widget.propertyId}';
+        endpoint = ApiConfig.propertyViewingRequestsUrl(widget.propertyId!);
       } else {
         // Get all viewing requests for user (buyer view)
-        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
+        endpoint = ApiConfig.userViewingRequestsUrl(UserSession.getCurrentUserId());
       }
 
       final response = await http.get(
@@ -52,7 +52,12 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          _viewingRequests = List<Map<String, dynamic>>.from(data['data'] ?? []);
+          // FIX: Handle both direct data array and wrapped response
+          if (data is List) {
+            _viewingRequests = List<Map<String, dynamic>>.from(data);
+          } else {
+            _viewingRequests = List<Map<String, dynamic>>.from(data['data'] ?? []);
+          }
           _errorMessage = null;
         });
       } else {
@@ -121,20 +126,27 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (widget.isSellerView) ...[
-              _buildInfoRow('Buyer', request['buyerName'] ?? 'Unknown'),
-              _buildInfoRow('Contact', request['buyerPhone'] ?? 'N/A'),
+              _buildInfoRow('Request ID', request['id']?.toString() ?? 'N/A'),
+              _buildInfoRow('User ID', request['userId']?.toString() ?? 'N/A'),
+              if (request['user'] != null) ...[
+                _buildInfoRow('Buyer Name', request['user']['fullName'] ?? 'Unknown'),
+                _buildInfoRow('Contact', request['user']['phoneNumber'] ?? request['user']['email'] ?? 'N/A'),
+              ],
             ] else ...[
-              _buildInfoRow('Property', request['propertyTitle'] ?? 'Property'),
-              _buildInfoRow('Address', request['propertyAddress'] ?? 'N/A'),
+              _buildInfoRow('Request ID', request['id']?.toString() ?? 'N/A'),
+              _buildInfoRow('Property ID', request['propertyId']?.toString() ?? 'N/A'),
+              if (request['property'] != null) ...[
+                _buildInfoRow('Property Type', request['property']['houseType'] ?? 'Property'),
+                _buildInfoRow('Location', '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}'),
+                _buildInfoRow('Price', '\$${request['property']['price'] ?? 0}'),
+              ],
             ],
             _buildInfoRow('Status', _getStatusText(request['status'])),
-            _buildInfoRow('Requested Date',
+            _buildInfoRow('Request Date',
                 request['requestDate'] != null
                     ? DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.parse(request['requestDate']))
                     : 'N/A'
             ),
-            if (request['message'] != null && request['message'].isNotEmpty)
-              _buildInfoRow('Message', request['message']),
           ],
         ),
         actions: [
@@ -172,14 +184,19 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   }
 
   String _getStatusText(dynamic status) {
-    // Backend uses enum Status with Available = 0, NotAvailable = 1
+    // FIX: Handle backend Status enum properly
+    // Backend uses Status enum with Available = 0, NotAvailable = 1
     if (status == 0 || status == 'Available') return 'Pending';
     if (status == 1 || status == 'NotAvailable') return 'Approved';
+
+    // Handle string statuses for better compatibility
     if (status is String) {
       switch (status.toLowerCase()) {
         case 'pending':
+        case 'available':
           return 'Pending';
         case 'approved':
+        case 'notavailable':
           return 'Approved';
         case 'rejected':
           return 'Rejected';
@@ -397,8 +414,8 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                   Expanded(
                     child: Text(
                       widget.isSellerView
-                          ? request['buyerName'] ?? 'Buyer Request'
-                          : request['propertyTitle'] ?? 'Property Viewing',
+                          ? 'Request #${request['id'] ?? 'N/A'}'
+                          : 'Property Request',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -424,6 +441,50 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                 ],
               ),
               const SizedBox(height: 8),
+
+              // Show additional details based on view type
+              if (widget.isSellerView) ...[
+                if (request['user'] != null)
+                  Text(
+                    'Buyer: ${request['user']['fullName'] ?? 'Unknown'}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                    ),
+                  ),
+              ] else ...[
+                if (request['property'] != null) ...[
+                  Text(
+                    '${request['property']['houseType'] ?? 'Property'} - \$${request['property']['price'] ?? 0}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        color: Colors.white.withOpacity(0.7),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+
+              const SizedBox(height: 8),
               if (request['requestDate'] != null)
                 Row(
                   children: [
@@ -444,27 +505,8 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                     ),
                   ],
                 ),
-              const SizedBox(height: 8),
-              if (!widget.isSellerView && request['propertyAddress'] != null)
-                Row(
-                  children: [
-                    Icon(
-                      Icons.location_on,
-                      color: Colors.white.withOpacity(0.7),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        request['propertyAddress'],
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+
+              // FIX: Show action buttons for seller view with pending status
               if (widget.isSellerView && statusText.toLowerCase() == 'pending') ...[
                 const SizedBox(height: 12),
                 Row(

@@ -5,7 +5,11 @@ class UserSession {
   // Store user data globally
   static void setCurrentUser(Map<String, dynamic> userData) {
     _currentUser = userData;
-    print('User session set: $_currentUser'); // Debug print
+    print('=== USER SESSION SET ===');
+    print('Raw userData: $userData');
+    print('Role from userData: ${userData['role']}');
+    print('Role type: ${userData['role'].runtimeType}');
+    print('========================');
   }
 
   // Get current user data
@@ -28,11 +32,32 @@ class UserSession {
     return 0;
   }
 
-  // Get current user role
+  // FIX: Enhanced role handling with debugging
   static String getCurrentUserRole() {
-    if (_currentUser == null) return 'buyer';
-    final role = _currentUser!['role']?.toString().toLowerCase() ?? 'buyer';
-    return role;
+    if (_currentUser == null) {
+      print('UserSession: No current user, defaulting to buyer');
+      return 'buyer';
+    }
+
+    final rawRole = _currentUser!['role'];
+    print('UserSession: Raw role from storage: $rawRole (type: ${rawRole.runtimeType})');
+
+    if (rawRole == null) {
+      print('UserSession: Role is null, defaulting to buyer');
+      return 'buyer';
+    }
+
+    final role = rawRole.toString().toLowerCase().trim();
+    print('UserSession: Processed role: "$role"');
+
+    // Ensure we only return valid roles
+    if (role == 'seller' || role == 'buyer') {
+      print('UserSession: Returning valid role: $role');
+      return role;
+    } else {
+      print('UserSession: Invalid role "$role", defaulting to buyer');
+      return 'buyer';
+    }
   }
 
   // Get current user name
@@ -69,19 +94,26 @@ class UserSession {
 
   // Check if current user is seller
   static bool isSeller() {
-    return getCurrentUserRole().toLowerCase() == 'seller';
+    final role = getCurrentUserRole();
+    final result = role.toLowerCase() == 'seller';
+    print('UserSession: isSeller() = $result (role: $role)');
+    return result;
   }
 
   // Check if current user is buyer
   static bool isBuyer() {
-    return getCurrentUserRole().toLowerCase() == 'buyer';
+    final role = getCurrentUserRole();
+    final result = role.toLowerCase() == 'buyer';
+    print('UserSession: isBuyer() = $result (role: $role)');
+    return result;
   }
 
   // Update user role (for role switching)
   static void updateUserRole(String newRole) {
     if (_currentUser != null) {
-      _currentUser!['role'] = newRole;
-      print('User role updated to: $newRole');
+      final normalizedRole = newRole.toLowerCase().trim();
+      _currentUser!['role'] = normalizedRole;
+      print('User role updated to: $normalizedRole');
     }
   }
 
@@ -137,15 +169,17 @@ class UserSession {
     return isValid;
   }
 
-  // Debug method to print current session
+  // FIX: Enhanced debug method
   static void debugPrintSession() {
-    print('=== User Session Debug ===');
+    print('=== USER SESSION DEBUG ===');
     print('Current User: $_currentUser');
     print('User ID: ${getCurrentUserId()}');
     print('User Role: ${getCurrentUserRole()}');
     print('User Name: ${getCurrentUserName()}');
     print('User Email: ${getCurrentUserEmail()}');
     print('Is Logged In: ${isLoggedIn()}');
+    print('Is Buyer: ${isBuyer()}');
+    print('Is Seller: ${isSeller()}');
     print('Session Valid: ${validateSession()}');
     print('========================');
   }

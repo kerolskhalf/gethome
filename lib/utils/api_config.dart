@@ -31,6 +31,21 @@ class ApiConfig {
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
+  // FIX: Add image URL building
+  static String getImageUrl(String? imagePath) {
+    if (imagePath == null || imagePath.isEmpty) {
+      return ''; // Return empty string for null/empty paths
+    }
+    // Remove leading slash if present
+    final cleanPath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+    return '$BASE_URL/images/$cleanPath';
+  }
+
+  // Helper method to check if image URL is valid
+  static bool isValidImagePath(String? imagePath) {
+    return imagePath != null && imagePath.isNotEmpty;
+  }
+
   // Common headers for JSON requests
   static Map<String, String> get headers => {
     'Content-Type': 'application/json',

@@ -1,9 +1,9 @@
 // lib/screens/property_details_screen_seller.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
+import 'viewing_requests_screen.dart';
 import '../utils/api_config.dart';
 
 class PropertyDetailsScreenSeller extends StatefulWidget {
@@ -24,22 +24,6 @@ class PropertyDetailsScreenSeller extends StatefulWidget {
 
 class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSeller> {
   bool _isDeleting = false;
-
-  // Mock viewing requests - in a real app, these would come from the backend
-  List<Map<String, dynamic>> _viewingRequests = [
-    {
-      'id': 1,
-      'buyerName': 'John Doe',
-      'requestDate': DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
-      'status': 0, // Pending
-    },
-    {
-      'id': 2,
-      'buyerName': 'Jane Smith',
-      'requestDate': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
-      'status': 1, // Approved
-    },
-  ];
 
   void _deleteProperty() {
     showDialog(
@@ -158,20 +142,14 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     }
   }
 
-  void _manageViewingRequest(int index, String action) {
-    // In a real app, this would call the backend API
-    setState(() {
-      if (action == 'approve') {
-        _viewingRequests[index]['status'] = 1; // Approved
-      } else if (action == 'reject') {
-        _viewingRequests[index]['status'] = 2; // Rejected (custom status)
-      }
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Viewing request ${action}d'),
-        backgroundColor: action == 'approve' ? Colors.green : Colors.orange,
+  void _viewPropertyRequests() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ViewingRequestsScreen(
+          isSellerView: true,
+          propertyId: widget.property['id'],
+        ),
       ),
     );
   }
@@ -188,30 +166,41 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     return Colors.grey;
   }
 
-  String _getViewingRequestStatusText(dynamic status) {
-    switch (status) {
-      case 0:
-        return 'Pending';
-      case 1:
-        return 'Approved';
-      case 2:
-        return 'Rejected';
-      default:
-        return 'Unknown';
-    }
-  }
+  // FIX: Add method to build property image widget with network image
+  Widget _buildPropertyImage() {
+    final imagePath = widget.property['imagePath'];
 
-  Color _getViewingRequestStatusColor(dynamic status) {
-    switch (status) {
-      case 0:
-        return Colors.orange;
-      case 1:
-        return Colors.green;
-      case 2:
-        return Colors.red;
-      default:
-        return Colors.grey;
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 100, color: Colors.grey),
+        ),
+      );
     }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 100, color: Colors.grey),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -243,16 +232,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                 expandedHeight: 300,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  background: widget.property['imagePath'] != null &&
-                      widget.property['imagePath'].isNotEmpty
-                      ? Image.file(
-                    File(widget.property['imagePath']),
-                    fit: BoxFit.cover,
-                  )
-                      : Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.home, size: 100),
-                  ),
+                  background: _buildPropertyImage(), // FIX: Use network image
                 ),
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back),
@@ -260,8 +240,14 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                 ),
                 actions: [
                   IconButton(
+                    icon: const Icon(Icons.remove_red_eye),
+                    onPressed: _viewPropertyRequests,
+                    tooltip: 'View Requests',
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.edit),
                     onPressed: _editProperty,
+                    tooltip: 'Edit Property',
                   ),
                   IconButton(
                     icon: _isDeleting
@@ -275,6 +261,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                     )
                         : const Icon(Icons.delete),
                     onPressed: _isDeleting ? null : _deleteProperty,
+                    tooltip: 'Delete Property',
                   ),
                 ],
               ),
@@ -448,17 +435,26 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                       _buildInfoSection(),
                       const SizedBox(height: 20),
 
-                      // Viewing requests
-                      const Text(
-                        'Viewing Requests',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      // Action buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildActionButton(
+                              'View Requests',
+                              Icons.remove_red_eye,
+                              _viewPropertyRequests,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildActionButton(
+                              'Edit Property',
+                              Icons.edit,
+                              _editProperty,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      _buildViewingRequestsList(),
                     ],
                   ),
                 ),
@@ -562,125 +558,25 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     );
   }
 
-  Widget _buildViewingRequestsList() {
-    if (_viewingRequests.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
+  Widget _buildActionButton(String label, IconData icon, VoidCallback onPressed) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(15),
         ),
-        child: Center(
-          child: Text(
-            'No viewing requests yet',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 16,
-            ),
-          ),
+      ),
+      icon: Icon(icon, color: Colors.white),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
         ),
-      );
-    }
-
-    return Column(
-      children: _viewingRequests.asMap().entries.map((entry) {
-        final index = entry.key;
-        final request = entry.value;
-        final status = request['status'];
-        final statusText = _getViewingRequestStatusText(status);
-        final statusColor = _getViewingRequestStatusColor(status);
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    request['buyerName'] as String,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      statusText,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Requested on: ${DateTime.parse(request['requestDate']).toString().substring(0, 16)}',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 14,
-                ),
-              ),
-              if (status == 0) // Pending
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _manageViewingRequest(index, 'approve'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'Approve',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _manageViewingRequest(index, 'reject'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'Reject',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        );
-      }).toList(),
+      ),
     );
   }
 }

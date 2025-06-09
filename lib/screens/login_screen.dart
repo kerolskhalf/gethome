@@ -60,12 +60,25 @@ class _LoginScreenState extends State<LoginScreen> {
         final data = json.decode(response.body);
         print('Login response data: $data');
 
+        // FIX: Enhanced role extraction and debugging
+        print('=== LOGIN RESPONSE ANALYSIS ===');
+        print('Full response data: $data');
+        print('Role field: ${data['role']}');
+        print('Role type: ${data['role'].runtimeType}');
+
+        String userRole = 'buyer'; // default
+        if (data['role'] != null) {
+          userRole = data['role'].toString().toLowerCase().trim();
+          print('Processed role: "$userRole"');
+        }
+
         // Store user data using the backend response format
         final userData = {
           'userId': data['userId'] ?? data['id'] ?? 0,
           'fullName': data['fullName'] ?? data['name'] ?? 'User',
           'email': _emailController.text.trim(),
-          'role': (data['role'] ?? 'buyer').toString().toLowerCase(),
+          'role': userRole, // Use normalized role
+          'phoneNumber': data['phoneNumber'],
         };
 
         print('Setting user data: $userData');
@@ -86,28 +99,44 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
 
-        // Navigate based on role
+        // Navigate based on role - FIX: Enhanced role checking with debugging
         await Future.delayed(const Duration(milliseconds: 500));
 
         if (mounted) {
-          final role = UserSession.getCurrentUserRole();
-          print('Navigating to dashboard for role: $role');
+          final storedRole = UserSession.getCurrentUserRole();
+          print('=== NAVIGATION DECISION ===');
+          print('Stored role: "$storedRole"');
+          print('Is buyer check: ${storedRole == 'buyer'}');
+          print('Is seller check: ${storedRole == 'seller'}');
 
-          if (role == 'buyer') {
+          // FIX: Explicit navigation logic with debugging
+          if (storedRole == 'buyer') {
+            print('NAVIGATING TO BUYER DASHBOARD');
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (context) => const BuyerDashboardScreen(),
               ),
             );
-          } else {
+          } else if (storedRole == 'seller') {
+            print('NAVIGATING TO SELLER DASHBOARD');
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (context) => const SellerDashboardScreen(),
               ),
             );
+          } else {
+            // Default to buyer if role is unclear
+            print('UNKNOWN ROLE: "$storedRole", DEFAULTING TO BUYER DASHBOARD');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BuyerDashboardScreen(),
+              ),
+            );
           }
+          print('=========================');
         }
       } else if (response.statusCode == 401) {
         _showErrorMessage('Invalid email or password');
