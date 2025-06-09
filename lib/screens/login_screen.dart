@@ -41,6 +41,8 @@ class _LoginScreenState extends State<LoginScreen> {
         'password': _passwordController.text,
       };
 
+      print('Login request: ${_emailController.text.trim()}'); // Debug
+
       final response = await http.post(
         Uri.parse(ApiConfig.loginUrl),
         headers: ApiConfig.headers,
@@ -51,18 +53,30 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
+      print('Login response status: ${response.statusCode}');
+      print('Login response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('Login response data: $data');
 
         // Store user data using the backend response format
         final userData = {
-          'userId': data['userId'],
-          'fullName': data['fullName'],
+          'userId': data['userId'] ?? data['id'] ?? 0,
+          'fullName': data['fullName'] ?? data['name'] ?? 'User',
           'email': _emailController.text.trim(),
-          'role': data['role'].toString().toLowerCase(),
+          'role': (data['role'] ?? 'buyer').toString().toLowerCase(),
         };
 
+        print('Setting user data: $userData');
         UserSession.setCurrentUser(userData);
+        UserSession.debugPrintSession();
+
+        // Verify session was set correctly
+        if (!UserSession.isLoggedIn()) {
+          _showErrorMessage('Failed to establish user session. Please try again.');
+          return;
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -77,6 +91,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (mounted) {
           final role = UserSession.getCurrentUserRole();
+          print('Navigating to dashboard for role: $role');
+
           if (role == 'buyer') {
             Navigator.pushReplacement(
               context,
@@ -95,12 +111,20 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } else if (response.statusCode == 401) {
         _showErrorMessage('Invalid email or password');
+      } else if (response.statusCode == 400) {
+        try {
+          final errorData = json.decode(response.body);
+          _showErrorMessage(errorData['message'] ?? 'Login failed. Please check your credentials.');
+        } catch (e) {
+          _showErrorMessage('Login failed. Please check your credentials.');
+        }
       } else {
         _showErrorMessage('Server error. Please try again later.');
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
+        print('Login error: $e');
         _showErrorMessage('Network error. Please check your connection and try again.');
       }
     }

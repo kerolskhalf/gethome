@@ -5,6 +5,7 @@ class UserSession {
   // Store user data globally
   static void setCurrentUser(Map<String, dynamic> userData) {
     _currentUser = userData;
+    print('User session set: $_currentUser'); // Debug print
   }
 
   // Get current user data
@@ -14,18 +15,24 @@ class UserSession {
 
   // Get current user ID
   static int getCurrentUserId() {
-    if (_currentUser == null) return 0;
+    if (_currentUser == null) {
+      print('Warning: No user session found');
+      return 0;
+    }
 
     final userId = _currentUser!['userId'];
     if (userId is int) return userId;
     if (userId is String) return int.tryParse(userId) ?? 0;
+
+    print('Warning: Invalid userId format: $userId');
     return 0;
   }
 
   // Get current user role
   static String getCurrentUserRole() {
-    if (_currentUser == null) return 'Buyer';
-    return _currentUser!['role']?.toString().toLowerCase() ?? 'buyer';
+    if (_currentUser == null) return 'buyer';
+    final role = _currentUser!['role']?.toString().toLowerCase() ?? 'buyer';
+    return role;
   }
 
   // Get current user name
@@ -49,11 +56,14 @@ class UserSession {
 
   // Check if user is logged in
   static bool isLoggedIn() {
-    return _currentUser != null && getCurrentUserId() > 0;
+    final isLoggedIn = _currentUser != null && getCurrentUserId() > 0;
+    print('User logged in: $isLoggedIn (UserId: ${getCurrentUserId()})'); // Debug print
+    return isLoggedIn;
   }
 
   // Clear user session (logout)
   static void clearSession() {
+    print('Clearing user session');
     _currentUser = null;
   }
 
@@ -71,6 +81,7 @@ class UserSession {
   static void updateUserRole(String newRole) {
     if (_currentUser != null) {
       _currentUser!['role'] = newRole;
+      print('User role updated to: $newRole');
     }
   }
 
@@ -84,6 +95,7 @@ class UserSession {
       if (fullName != null) _currentUser!['fullName'] = fullName;
       if (email != null) _currentUser!['email'] = email;
       if (phoneNumber != null) _currentUser!['phoneNumber'] = phoneNumber;
+      print('User profile updated: $_currentUser');
     }
   }
 
@@ -113,9 +125,28 @@ class UserSession {
 
   // Validate session
   static bool validateSession() {
-    return _currentUser != null &&
+    final isValid = _currentUser != null &&
         getCurrentUserId() > 0 &&
         getCurrentUserName().isNotEmpty &&
         getCurrentUserEmail().isNotEmpty;
+
+    if (!isValid) {
+      print('Session validation failed: $_currentUser');
+    }
+
+    return isValid;
+  }
+
+  // Debug method to print current session
+  static void debugPrintSession() {
+    print('=== User Session Debug ===');
+    print('Current User: $_currentUser');
+    print('User ID: ${getCurrentUserId()}');
+    print('User Role: ${getCurrentUserRole()}');
+    print('User Name: ${getCurrentUserName()}');
+    print('User Email: ${getCurrentUserEmail()}');
+    print('Is Logged In: ${isLoggedIn()}');
+    print('Session Valid: ${validateSession()}');
+    print('========================');
   }
 }

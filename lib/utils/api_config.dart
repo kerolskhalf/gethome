@@ -22,14 +22,16 @@ class ApiConfig {
   // Viewing request endpoints
   static String get createViewingRequestUrl => '$BASE_URL/api/viewing-requests/create';
   static String updateViewingRequestUrl(int requestId) => '$BASE_URL/api/viewing-requests/update/$requestId';
+  static String userViewingRequestsUrl(int userId) => '$BASE_URL/api/viewing-requests/user/$userId';
+  static String propertyViewingRequestsUrl(int propertyId) => '$BASE_URL/api/viewing-requests/property/$propertyId';
 
-  // Favorites endpoints (if implemented in backend)
+  // Favorites endpoints
   static String get addFavoriteUrl => '$BASE_URL/api/favorites/add';
   static String get removeFavoriteUrl => '$BASE_URL/api/favorites/remove';
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
-  // Common headers
+  // Common headers for JSON requests
   static Map<String, String> get headers => {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -38,6 +40,7 @@ class ApiConfig {
   // Headers for multipart requests (file uploads)
   static Map<String, String> get multipartHeaders => {
     'Accept': 'application/json',
+    // Don't set Content-Type for multipart requests - let http package handle it
   };
 
   // Response status codes
@@ -61,6 +64,42 @@ class ApiConfig {
         return 'Server error. Please try again later.';
       default:
         return 'Unknown error (Code: $statusCode)';
+    }
+  }
+
+  // Helper method to check if response is successful
+  static bool isSuccessful(int statusCode) {
+    return statusCode >= 200 && statusCode < 300;
+  }
+
+  // Helper method to parse error response
+  static String parseErrorResponse(String responseBody) {
+    try {
+      final Map<String, dynamic> errorData =
+      responseBody.isNotEmpty ? Map<String, dynamic>.from(
+          responseBody.startsWith('{')
+              ? {'message': responseBody}
+              : {'message': 'Unknown error'}
+      ) : {'message': 'Empty response'};
+
+      if (errorData.containsKey('message')) {
+        return errorData['message'].toString();
+      } else if (errorData.containsKey('errors')) {
+        final errors = errorData['errors'] as Map<String, dynamic>;
+        final errorMessages = <String>[];
+        errors.forEach((key, value) {
+          if (value is List) {
+            errorMessages.addAll(value.cast<String>());
+          } else {
+            errorMessages.add(value.toString());
+          }
+        });
+        return errorMessages.join('\n');
+      } else {
+        return 'An error occurred';
+      }
+    } catch (e) {
+      return 'Failed to parse error response';
     }
   }
 }

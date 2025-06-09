@@ -208,6 +208,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       final fields = _prepareFormFields();
       request.fields.addAll(fields);
 
+      // Debug: Print fields being sent
+      print('Sending fields: $fields');
+
       // Add image file
       if (_selectedImagePath != null) {
         final imageFile = await http.MultipartFile.fromPath(
@@ -215,6 +218,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           _selectedImagePath!,
         );
         request.files.add(imageFile);
+        print('Added image file: $_selectedImagePath');
       }
 
       request.headers.addAll(ApiConfig.multipartHeaders);
@@ -226,7 +230,10 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         final successMessage = widget.propertyToEdit != null
             ? 'Property updated successfully!'
             : 'Property added successfully!';
@@ -237,24 +244,109 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           Navigator.pop(context, true);
         }
       } else {
-        _showErrorMessage('Failed to save property. Please try again.');
+        // Parse error response
+        String errorMessage = 'Failed to save property. Please try again.';
+        try {
+          final errorData = json.decode(response.body);
+          if (errorData['message'] != null) {
+            errorMessage = errorData['message'];
+          } else if (errorData['errors'] != null) {
+            // Handle validation errors
+            final errors = errorData['errors'] as Map<String, dynamic>;
+            final errorList = <String>[];
+            errors.forEach((key, value) {
+              if (value is List) {
+                errorList.addAll(value.cast<String>());
+              } else {
+                errorList.add(value.toString());
+              }
+            });
+            errorMessage = errorList.join('\n');
+          }
+        } catch (e) {
+          print('Error parsing response: $e');
+        }
+        _showErrorMessage(errorMessage);
       }
 
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        _showErrorMessage('An error occurred: ${e.toString()}');
+        _showErrorMessage('Network error: ${e.toString()}');
       }
+      print('Network error: $e');
     }
   }
 
   bool _validateFormForSubmission() {
-    if (_formKey.currentState?.validate() != true) {
+    // Validate all required fields
+    if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
+      _showErrorMessage('Please add a property image');
       return false;
     }
 
-    if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
-      _showErrorMessage('Please add a property image');
+    // Validate Size
+    if (_sizeController.text.trim().isEmpty) {
+      _showErrorMessage('Property size is required');
+      return false;
+    }
+    final size = double.tryParse(_sizeController.text.trim());
+    if (size == null || size <= 0 || size > 1000000) {
+      _showErrorMessage('Size must be between 1 and 1,000,000 m²');
+      return false;
+    }
+
+    // Validate Bedrooms
+    if (_bedroomsController.text.trim().isEmpty) {
+      _showErrorMessage('Number of bedrooms is required');
+      return false;
+    }
+    final bedrooms = int.tryParse(_bedroomsController.text.trim());
+    if (bedrooms == null || bedrooms < 1 || bedrooms > 10) {
+      _showErrorMessage('Bedrooms must be between 1 and 10');
+      return false;
+    }
+
+    // Validate Bathrooms
+    if (_bathroomsController.text.trim().isEmpty) {
+      _showErrorMessage('Number of bathrooms is required');
+      return false;
+    }
+    final bathrooms = int.tryParse(_bathroomsController.text.trim());
+    if (bathrooms == null || bathrooms < 1 || bathrooms > 10) {
+      _showErrorMessage('Bathrooms must be between 1 and 10');
+      return false;
+    }
+
+    // Validate Total Rooms
+    if (_totalRoomsController.text.trim().isNotEmpty) {
+      final totalRooms = int.tryParse(_totalRoomsController.text.trim());
+      if (totalRooms == null || totalRooms < 0 || totalRooms > 50) {
+        _showErrorMessage('Total rooms must be between 0 and 50');
+        return false;
+      }
+    }
+
+    // Validate Region
+    if (_regionController.text.trim().isEmpty) {
+      _showErrorMessage('Region is required');
+      return false;
+    }
+
+    // Validate City
+    if (_cityController.text.trim().isEmpty) {
+      _showErrorMessage('City is required');
+      return false;
+    }
+
+    // Validate Price
+    if (_priceController.text.trim().isEmpty) {
+      _showErrorMessage('Price is required');
+      return false;
+    }
+    final price = double.tryParse(_priceController.text.trim());
+    if (price == null || price < 1000 || price > 999999999) {
+      _showErrorMessage('Price must be between 1,000 and 999,999,999');
       return false;
     }
 
@@ -262,6 +354,11 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   Map<String, String> _prepareFormFields() {
+    // Calculate price per m² if empty
+    if (_pricePerM2Controller.text.trim().isEmpty) {
+      _calculatePricePerM2();
+    }
+
     // Match PropertyDTO fields exactly
     return {
       'UserId': UserSession.getCurrentUserId().toString(),
@@ -272,8 +369,8 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       'TotalRooms': _totalRoomsController.text.trim().isEmpty
           ? '0'
           : _totalRoomsController.text.trim(),
-      'IsHighFloor': _isHighFloor.toString(),
-      'Status': _status == 'Available' ? '0' : '1', // Convert to enum value
+      'IsHighFloor': _isHighFloor ? 'true' : 'false',
+      'Status': _status == 'Available' ? '0' : '1', // 0 = Available, 1 = NotAvailable
       'Region': _regionController.text.trim(),
       'City': _cityController.text.trim(),
       'Price': _priceController.text.trim(),
@@ -285,6 +382,22 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
   void _nextPage() {
     if (_currentPage < 2) {
+      // Validate current page before moving to next
+      if (_currentPage == 0 && (_selectedImagePath == null || _selectedImagePath!.isEmpty)) {
+        _showErrorMessage('Please add a property image before continuing');
+        return;
+      }
+
+      if (_currentPage == 1) {
+        // Validate basic info
+        if (_sizeController.text.trim().isEmpty ||
+            _bedroomsController.text.trim().isEmpty ||
+            _bathroomsController.text.trim().isEmpty) {
+          _showErrorMessage('Please fill in all required fields');
+          return;
+        }
+      }
+
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.ease,
@@ -440,7 +553,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Add a high-quality image of your property',
+            'Add a high-quality image of your property *',
             style: TextStyle(
               color: Colors.white.withOpacity(0.7),
               fontSize: 14,
@@ -580,7 +693,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
               validator: (value) {
                 if (value?.isEmpty ?? true) return 'Size is required';
                 final size = double.tryParse(value!);
-                if (size == null || size <= 0) return 'Please enter a valid size';
+                if (size == null || size <= 0 || size > 1000000) {
+                  return 'Size must be between 1 and 1,000,000 m²';
+                }
                 return null;
               },
             ),
@@ -597,7 +712,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     validator: (value) {
                       if (value?.isEmpty ?? true) return 'Required';
                       final bedrooms = int.tryParse(value!);
-                      if (bedrooms == null || bedrooms < 0) return 'Invalid';
+                      if (bedrooms == null || bedrooms < 1 || bedrooms > 10) {
+                        return 'Must be 1-10';
+                      }
                       return null;
                     },
                   ),
@@ -611,7 +728,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     validator: (value) {
                       if (value?.isEmpty ?? true) return 'Required';
                       final bathrooms = int.tryParse(value!);
-                      if (bathrooms == null || bathrooms < 0) return 'Invalid';
+                      if (bathrooms == null || bathrooms < 1 || bathrooms > 10) {
+                        return 'Must be 1-10';
+                      }
                       return null;
                     },
                   ),
@@ -623,8 +742,17 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             // Total Rooms
             _buildTextField(
               controller: _totalRoomsController,
-              label: 'Total Rooms',
+              label: 'Total Rooms (optional)',
               keyboardType: TextInputType.number,
+              validator: (value) {
+                if (value?.isNotEmpty ?? false) {
+                  final totalRooms = int.tryParse(value!);
+                  if (totalRooms == null || totalRooms < 0 || totalRooms > 50) {
+                    return 'Must be 0-50';
+                  }
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
 
@@ -695,7 +823,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                   validator: (value) {
                     if (value?.isEmpty ?? true) return 'Price is required';
                     final price = double.tryParse(value!);
-                    if (price == null || price <= 0) return 'Invalid price';
+                    if (price == null || price < 1000 || price > 999999999) {
+                      return 'Price must be 1,000 - 999,999,999';
+                    }
                     return null;
                   },
                   onChanged: (value) => _calculatePricePerM2(),
@@ -810,27 +940,30 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   Widget _buildHighFloorToggle() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          'High Floor',
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'High Floor Property',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+            ),
           ),
-        ),
-        Switch(
-          value: _isHighFloor,
-          onChanged: (value) {
-            setState(() {
-              _isHighFloor = value;
-            });
-          },
-          activeColor: Colors.white,
-          activeTrackColor: Colors.blue.withOpacity(0.5),
-        ),
-      ],
+          Switch(
+            value: _isHighFloor,
+            onChanged: (value) {
+              setState(() {
+                _isHighFloor = value;
+              });
+            },
+            activeColor: Colors.white,
+            activeTrackColor: Colors.blue.withOpacity(0.5),
+          ),
+        ],
+      ),
     );
   }
 
@@ -839,7 +972,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Status',
+          'Availability Status',
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
             fontSize: 14,
