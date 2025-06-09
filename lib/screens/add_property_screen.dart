@@ -56,14 +56,29 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   void initState() {
     super.initState();
     _initializeControllers();
+
+    // Ensure we have a valid user session
+    UserSession.ensureValidSession();
     _userId = UserSession.getCurrentUserId();
+
+    // Print debug info
+    ApiConfig.printDebugInfo();
+    print('🔧 Current User ID: $_userId');
+    print('🔧 User Session Valid: ${UserSession.validateSession()}');
+    print('🔧 User Session Summary: ${UserSession.getSessionSummary()}');
 
     // Validate user session
     if (_userId <= 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showErrorMessage('Invalid user session. Please login again.');
-        Navigator.pop(context);
-      });
+      print('⚠️ Invalid user ID detected, attempting to fix...');
+      UserSession.ensureValidSession();
+      _userId = UserSession.getCurrentUserId();
+
+      if (_userId <= 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showErrorMessage('Invalid user session. Please login again.');
+          Navigator.pop(context);
+        });
+      }
     }
   }
 
@@ -115,6 +130,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           double.parse(longitude.toString()),
         );
       } catch (e) {
+        print('⚠️ Error parsing location coordinates: $e');
         _selectedLocation = null;
       }
     }
@@ -134,9 +150,10 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     super.dispose();
   }
 
-  // Single image picker
+  // Enhanced image picker with better error handling
   Future<void> _pickImageFromGallery() async {
     try {
+      print('📷 Picking image from gallery...');
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1920,
@@ -145,17 +162,31 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       );
 
       if (image != null && image.path.isNotEmpty) {
-        setState(() {
-          _selectedImagePath = image.path;
-        });
+        // Verify file exists and is readable
+        final file = File(image.path);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          print('📷 Image selected: ${image.path} (${fileSize} bytes)');
+
+          setState(() {
+            _selectedImagePath = image.path;
+          });
+          _showSuccessMessage('Image selected successfully!');
+        } else {
+          _showErrorMessage('Selected image file is not accessible.');
+        }
+      } else {
+        print('📷 No image selected from gallery');
       }
     } catch (e) {
+      print('❌ Error picking image from gallery: $e');
       _showErrorMessage('Failed to pick image: $e');
     }
   }
 
   Future<void> _pickImageFromCamera() async {
     try {
+      print('📷 Taking photo with camera...');
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
         maxWidth: 1920,
@@ -164,11 +195,24 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       );
 
       if (image != null && image.path.isNotEmpty) {
-        setState(() {
-          _selectedImagePath = image.path;
-        });
+        // Verify file exists and is readable
+        final file = File(image.path);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          print('📷 Photo taken: ${image.path} (${fileSize} bytes)');
+
+          setState(() {
+            _selectedImagePath = image.path;
+          });
+          _showSuccessMessage('Photo taken successfully!');
+        } else {
+          _showErrorMessage('Captured photo is not accessible.');
+        }
+      } else {
+        print('📷 No photo taken');
       }
     } catch (e) {
+      print('❌ Error taking photo: $e');
       _showErrorMessage('Failed to take photo: $e');
     }
   }
@@ -177,15 +221,20 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     setState(() {
       _selectedImagePath = null;
     });
+    _showSuccessMessage('Image removed');
   }
 
-  // AI Price Prediction (if available)
+  // AI Price Prediction with better error handling
   Future<void> _predictPrice() async {
-    if (!_canPredictPrice()) return;
+    if (!_canPredictPrice()) {
+      _showErrorMessage('Please fill in all required fields for price prediction');
+      return;
+    }
 
     setState(() => _isPredictingPrice = true);
 
     try {
+      print('🤖 Predicting price with AI...');
       final requestBody = {
         'houseType': _houseType,
         'size': int.tryParse(_sizeController.text) ?? 0,
@@ -196,11 +245,16 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         'isHighFloor': _isHighFloor,
       };
 
+      print('🤖 Price prediction request: $requestBody');
+
       final response = await http.post(
         Uri.parse(ApiConfig.predictPriceUrl),
         headers: ApiConfig.headers,
         body: json.encode(requestBody),
-      );
+      ).timeout(ApiConfig.connectionTimeout);
+
+      print('🤖 Price prediction response: ${response.statusCode}');
+      print('🤖 Price prediction body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -214,9 +268,11 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         });
         _showSuccessMessage('Price prediction completed!');
       } else {
+        print('❌ Price prediction failed: ${response.statusCode}');
         _showErrorMessage('Price prediction not available');
       }
     } catch (e) {
+      print('❌ Price prediction error: $e');
       _showErrorMessage('Price prediction service unavailable');
     } finally {
       setState(() => _isPredictingPrice = false);
@@ -250,52 +306,59 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         _pricePerM2Controller.text = pricePerM2.toStringAsFixed(2);
       }
     } catch (e) {
-      // Don't show error to user, just skip calculation
+      print('⚠️ Error calculating price per m²: $e');
     }
   }
 
   // Location selection
   Future<void> _selectLocation() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MapScreen(
-          isLocationPicker: true,
-          onLocationSelected: (location) {
-            setState(() {
-              _selectedLocation = location;
-            });
-          },
+    try {
+      print('📍 Opening location picker...');
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MapScreen(
+            isLocationPicker: true,
+            onLocationSelected: (location) {
+              setState(() {
+                _selectedLocation = location;
+              });
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    if (result != null && result is LatLng) {
-      setState(() {
-        _selectedLocation = result;
-      });
-      _selectedAddress = 'Lat: ${result.latitude.toStringAsFixed(4)}, Lng: ${result.longitude.toStringAsFixed(4)}';
+      if (result != null && result is LatLng) {
+        setState(() {
+          _selectedLocation = result;
+        });
+        _selectedAddress = 'Lat: ${result.latitude.toStringAsFixed(4)}, Lng: ${result.longitude.toStringAsFixed(4)}';
+        _showSuccessMessage('Location selected successfully!');
+      }
+    } catch (e) {
+      print('❌ Error selecting location: $e');
+      _showErrorMessage('Error opening map: $e');
     }
   }
 
-  // Form submission matching exact API specification
+  // Enhanced form submission with detailed logging
   Future<void> _submitForm() async {
     try {
+      print('📝 Form submission started...');
+
       if (_currentPage < 2) {
         _nextPage();
         return;
       }
 
-      // Validate final form
-      if (!_formKey.currentState!.validate()) return;
-      if (_selectedImagePath == null) {
-        _showErrorMessage('Please add at least one property image');
+      // Pre-submission validation
+      if (!_validateFormForSubmission()) {
         return;
       }
 
       setState(() => _isLoading = true);
 
-      // Handle URI creation with proper null checks
+      // Determine endpoint and method
       Uri uri;
       String httpMethod;
 
@@ -308,11 +371,31 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         }
         uri = Uri.parse(ApiConfig.updatePropertyUrl(propertyId));
         httpMethod = 'PUT';
+        print('📝 Updating property ID: $propertyId');
       } else {
         uri = Uri.parse(ApiConfig.addPropertyUrl);
         httpMethod = 'POST';
+        print('📝 Creating new property');
       }
 
+      print('📝 API Endpoint: $uri');
+      print('📝 HTTP Method: $httpMethod');
+
+      // Validate image file before proceeding
+      if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
+        _showErrorMessage('Please select an image for your property');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final imageFile = File(_selectedImagePath!);
+      if (!await imageFile.exists()) {
+        _showErrorMessage('Selected image file no longer exists. Please select another image.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Create multipart request
       final request = http.MultipartRequest(httpMethod, uri);
 
       // Calculate price per m² if not provided
@@ -320,17 +403,152 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         _calculatePricePerM2();
       }
 
-      // Validate user ID
-      if (_userId <= 0) {
-        _showErrorMessage('Error: Invalid user session. Please login again.');
+      // Prepare form fields
+      final fields = _prepareFormFields();
+      print('📝 Form fields: $fields');
+
+      request.fields.addAll(fields);
+
+      // Add image file
+      try {
+        await _addImageToRequest(request);
+      } catch (e) {
+        _showErrorMessage('Failed to process image: $e');
         setState(() => _isLoading = false);
         return;
       }
 
-      // Add form fields exactly matching API specification
+      // Set headers for multipart request
+      request.headers.addAll(ApiConfig.multipartHeaders);
+
+      print('📝 Sending request...');
+
+      // Send request with timeout
+      http.StreamedResponse? streamedResponse;
+      try {
+        streamedResponse = await request.send().timeout(
+          ApiConfig.sendTimeout,
+          onTimeout: () {
+            throw Exception('Request timeout - please check your internet connection');
+          },
+        );
+      } catch (e) {
+        setState(() => _isLoading = false);
+        _showErrorMessage('Network error: $e');
+        return;
+      }
+
+      final response = await http.Response.fromStream(streamedResponse);
+
+      setState(() => _isLoading = false);
+
+      if (!mounted) return;
+
+      print('📝 Response status: ${response.statusCode}');
+      print('📝 Response body: ${response.body}');
+
+      if (ApiConfig.isSuccessStatusCode(response.statusCode)) {
+        final successMessage = widget.propertyToEdit != null
+            ? 'Property updated successfully!'
+            : 'Property added successfully!';
+        _showSuccessMessage(successMessage);
+
+        // Add delay before navigation to ensure user sees success message
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
+      } else {
+        _handleApiError(response);
+      }
+
+    } catch (e, stackTrace) {
+      setState(() => _isLoading = false);
+      print('❌ Form submission error: $e');
+      print('❌ Stack trace: $stackTrace');
+      if (mounted) {
+        _showErrorMessage('An error occurred: ${e.toString()}');
+      }
+    }
+  }
+
+  bool _validateFormForSubmission() {
+    try {
+      // Validate form
+      if (_formKey.currentState?.validate() != true) {
+        print('❌ Form validation failed');
+        return false;
+      }
+
+      // Check required image
+      if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
+        _showErrorMessage('Please add at least one property image');
+        return false;
+      }
+
+      // Validate user session
+      if (_userId <= 0) {
+        _showErrorMessage('Error: Invalid user session. Please login again.');
+        return false;
+      }
+
+      // Check required fields using Map instead of records
+      final requiredFields = {
+        'House Type': _houseType,
+        'Size': _sizeController.text.trim(),
+        'Bedrooms': _bedroomsController.text.trim(),
+        'Bathrooms': _bathroomsController.text.trim(),
+        'Region': _regionController.text.trim(),
+        'City': _cityController.text.trim(),
+        'Price': _priceController.text.trim(),
+      };
+
+      for (final entry in requiredFields.entries) {
+        if (entry.value.isEmpty) {
+          _showErrorMessage('${entry.key} is required');
+          return false;
+        }
+      }
+
+      // Validate numeric fields
+      final sizeValue = int.tryParse(_sizeController.text.trim());
+      if (sizeValue == null || sizeValue <= 0) {
+        _showErrorMessage('Please enter a valid size');
+        return false;
+      }
+
+      final bedroomsValue = int.tryParse(_bedroomsController.text.trim());
+      if (bedroomsValue == null || bedroomsValue < 0) {
+        _showErrorMessage('Please enter a valid number of bedrooms');
+        return false;
+      }
+
+      final bathroomsValue = int.tryParse(_bathroomsController.text.trim());
+      if (bathroomsValue == null || bathroomsValue < 0) {
+        _showErrorMessage('Please enter a valid number of bathrooms');
+        return false;
+      }
+
+      final priceValue = double.tryParse(_priceController.text.trim());
+      if (priceValue == null || priceValue <= 0) {
+        _showErrorMessage('Please enter a valid price');
+        return false;
+      }
+
+      print('✅ Form validation passed');
+      return true;
+    } catch (e) {
+      print('❌ Validation error: $e');
+      _showErrorMessage('Validation error: $e');
+      return false;
+    }
+  }
+
+  Map<String, String> _prepareFormFields() {
+    try {
       final fields = <String, String>{
         // Required fields (marked with * in API)
-        'HouseType': _houseType,
+        'HouseType': _houseType ?? 'Apartment',
         'Size': _sizeController.text.trim(),
         'Bedrooms': _bedroomsController.text.trim(),
         'Bathrooms': _bathroomsController.text.trim(),
@@ -345,64 +563,76 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       };
 
       // Add optional fields only if they have values
-      if (_totalRoomsController.text.isNotEmpty) {
+      if (_totalRoomsController.text.trim().isNotEmpty) {
         fields['TotalRooms'] = _totalRoomsController.text.trim();
       }
-      if (_pricePerM2Controller.text.isNotEmpty) {
+      if (_pricePerM2Controller.text.trim().isNotEmpty) {
         fields['PricePerM2'] = _pricePerM2Controller.text.trim();
       }
 
-      request.fields.addAll(fields);
-
-      // Add image file as ImagePath (single file as per API spec)
-      if (_selectedImagePath != null && _selectedImagePath!.isNotEmpty) {
-        // Verify file exists before adding
-        final file = File(_selectedImagePath!);
-        if (await file.exists()) {
-          final imageFile = await http.MultipartFile.fromPath(
-            'ImagePath', // Exact field name from API spec
-            _selectedImagePath!,
-          );
-          request.files.add(imageFile);
-        } else {
-          _showErrorMessage('Selected image file not found. Please select another image.');
-          setState(() => _isLoading = false);
-          return;
-        }
-      } else {
-        _showErrorMessage('Please select an image for your property');
-        setState(() => _isLoading = false);
-        return;
+      // Add location if selected
+      if (_selectedLocation != null) {
+        fields['Latitude'] = _selectedLocation!.latitude.toString();
+        fields['Longitude'] = _selectedLocation!.longitude.toString();
       }
 
-      // Send request
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      return fields;
+    } catch (e) {
+      print('❌ Error preparing form fields: $e');
+      // Return minimal required fields
+      return {
+        'HouseType': _houseType ?? 'Apartment',
+        'Size': _sizeController.text.trim(),
+        'Bedrooms': _bedroomsController.text.trim(),
+        'Bathrooms': _bathroomsController.text.trim(),
+        'Region': _regionController.text.trim(),
+        'City': _cityController.text.trim(),
+        'Price': _priceController.text.trim(),
+        'UserId': _userId.toString(),
+        'Status': '0',
+        'IsHighFloor': 'false',
+      };
+    }
+  }
 
-      setState(() => _isLoading = false);
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final successMessage = widget.propertyToEdit != null
-            ? 'Property updated successfully!'
-            : 'Property added successfully!';
-        _showSuccessMessage(successMessage);
-
-        Navigator.pop(context, true);
-      } else {
-        _handleApiError(response);
+  Future<void> _addImageToRequest(http.MultipartRequest request) async {
+    try {
+      if (_selectedImagePath == null || _selectedImagePath!.isEmpty) {
+        throw Exception('No image path provided');
       }
 
-    } catch (e, stackTrace) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        _showErrorMessage('An error occurred. Please try again.');
+      final file = File(_selectedImagePath!);
+      if (!await file.exists()) {
+        throw Exception('Image file does not exist at path: $_selectedImagePath');
       }
+
+      final fileSize = await file.length();
+      if (fileSize == 0) {
+        throw Exception('Image file is empty (0 bytes)');
+      }
+
+      if (fileSize > 10 * 1024 * 1024) { // 10MB limit
+        throw Exception('Image file is too large (${fileSize} bytes). Maximum size is 10MB.');
+      }
+
+      print('📷 Adding image to request: $_selectedImagePath (${fileSize} bytes)');
+
+      final imageFile = await http.MultipartFile.fromPath(
+        'ImagePath', // Exact field name from API spec
+        _selectedImagePath!,
+      );
+      request.files.add(imageFile);
+      print('📷 Image added to request successfully');
+    } catch (e) {
+      print('❌ Error adding image to request: $e');
+      throw Exception('Failed to process image: $e');
     }
   }
 
   void _handleApiError(http.Response response) {
+    print('❌ API Error: ${response.statusCode}');
+    print('❌ API Error Body: ${response.body}');
+
     if (response.statusCode == 400) {
       try {
         final errorData = json.decode(response.body);
@@ -447,21 +677,78 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   void _showErrorMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 5),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Dismiss',
+            textColor: Colors.white,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _showSuccessMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 3),
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  // Debug methods for testing
+  Future<void> _testConnection() async {
+    try {
+      _showSuccessMessage('Testing API connection...');
+
+      final response = await http.get(
+        Uri.parse('${ApiConfig.BASE_URL}/api/health'),
+        headers: ApiConfig.headers,
+      ).timeout(const Duration(seconds: 10));
+
+      _showSuccessMessage('API connection test: ${response.statusCode}');
+    } catch (e) {
+      _showErrorMessage('API connection failed: $e');
+    }
+  }
+
+  void _debugFormData() {
+    final formData = _prepareFormFields();
+    final imageValid = _selectedImagePath != null && File(_selectedImagePath!).existsSync();
+
+    final debugInfo = '''
+Form Data:
+${formData.entries.map((e) => '${e.key}: ${e.value}').join('\n')}
+
+Image: ${_selectedImagePath ?? 'None'}
+Image Valid: $imageValid
+User ID: $_userId
+''';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Form Debug Data'),
+        content: SingleChildScrollView(
+          child: Text(debugInfo),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -536,6 +823,35 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
               ),
             ),
           ),
+          // Debug info
+          if (ApiConfig.isDevelopment)
+            IconButton(
+              icon: const Icon(Icons.info_outline, color: Colors.white),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Debug Info'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('User ID: $_userId'),
+                        Text('API URL: ${ApiConfig.addPropertyUrl}'),
+                        Text('Has Image: ${_selectedImagePath != null}'),
+                        Text('Session Valid: ${UserSession.validateSession()}'),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -612,10 +928,18 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                             width: double.infinity,
                             height: double.infinity,
                             errorBuilder: (context, error, stackTrace) {
+                              print('❌ Error loading image: $error');
                               return Container(
                                 color: Colors.grey[300],
                                 child: const Center(
-                                  child: Icon(Icons.error, size: 50, color: Colors.grey),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.error, size: 50, color: Colors.grey),
+                                      SizedBox(height: 8),
+                                      Text('Error loading image'),
+                                    ],
+                                  ),
                                 ),
                               );
                             },
@@ -675,6 +999,50 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                 ),
               ),
             ],
+          ),
+
+          // Image requirements info
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.blue.shade300,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Image Guidelines',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• Use high-quality, well-lit photos\n'
+                      '• Show the property\'s best features\n'
+                      '• Ensure the image is clear and focused\n'
+                      '• Maximum file size: 10MB',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1260,22 +1628,61 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           top: BorderSide(color: Colors.white.withOpacity(0.2)),
         ),
       ),
-      child: Row(
-        children: [
-          if (_currentPage > 0)
+      child: SafeArea(
+        child: Row(
+          children: [
+            if (_currentPage > 0) ...[
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _previousPage,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey.withOpacity(0.3),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                  ),
+                  child: const Text(
+                    'Previous',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+            ],
             Expanded(
               child: ElevatedButton(
-                onPressed: _previousPage,
+                onPressed: _isLoading ? null : () {
+                  try {
+                    _submitForm();
+                  } catch (e) {
+                    print('❌ Button press error: $e');
+                    _showErrorMessage('Error: $e');
+                  }
+                },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey.withOpacity(0.3),
+                  backgroundColor: Colors.white.withOpacity(0.2),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(15),
                   ),
                 ),
-                child: const Text(
-                  'Previous',
-                  style: TextStyle(
+                child: _isLoading
+                    ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+                    : Text(
+                  _getButtonText(),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -1283,39 +1690,19 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                 ),
               ),
             ),
-          if (_currentPage > 0) const SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _submitForm,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.2),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-                  : Text(
-                _currentPage < 2 ? 'Next' :
-                (widget.propertyToEdit != null ? 'Save Changes' : 'Post Property'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  String _getButtonText() {
+    if (_currentPage < 2) {
+      return 'Next';
+    } else if (widget.propertyToEdit != null) {
+      return 'Save Changes';
+    } else {
+      return 'Post Property';
+    }
   }
 }

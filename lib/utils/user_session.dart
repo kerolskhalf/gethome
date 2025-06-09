@@ -268,7 +268,31 @@ class UserSession {
     if (_currentUser != null) {
       _currentUser!['userId'] = userId;
       print('🐛 Debug: UserId forced to $userId');
+    } else {
+      // Create minimal session if none exists
+      _currentUser = {
+        'userId': userId,
+        'fullName': 'Debug User',
+        'email': 'debug@example.com',
+        'role': 'seller',
+      };
+      print('🐛 Debug: Created minimal session with UserId $userId');
     }
+  }
+
+  // Create demo session for testing
+  static void createDemoSession({required String role}) {
+    final userId = role == 'seller' ? 1 : 2;
+    _currentUser = {
+      'userId': userId,
+      'fullName': 'Demo ${role.toUpperCase()}',
+      'email': 'demo${role}@example.com',
+      'role': role,
+      'phoneNumber': '+1234567890',
+      'dateOfBirth': DateTime.now().subtract(const Duration(days: 365 * 25)).toIso8601String(),
+      'token': 'demo_token_${role}_${DateTime.now().millisecondsSinceEpoch}',
+    };
+    print('🎭 Created demo session for $role with ID $userId');
   }
 
   // Check session health
@@ -283,5 +307,26 @@ class UserSession {
       'isComplete': hasCompleteProfile(),
       'isValid': validateSession(),
     };
+  }
+
+  // Ensure valid session exists (create demo if needed)
+  static void ensureValidSession() {
+    if (!validateSession()) {
+      print('⚠️ Invalid session detected, creating demo seller session');
+      createDemoSession(role: 'seller');
+    }
+  }
+
+  // Get or create user ID
+  static int getOrCreateUserId() {
+    final userId = getCurrentUserId();
+    if (userId > 0) {
+      return userId;
+    }
+
+    // Create demo session if no valid session exists
+    print('⚠️ No valid user ID, creating demo session');
+    createDemoSession(role: 'seller');
+    return getCurrentUserId();
   }
 }

@@ -12,8 +12,8 @@ class ApiConfig {
   // Auth endpoints
   static String get loginUrl => '$BASE_URL/api/auth/login';
   static String get registerUrl => '$BASE_URL/api/auth/register';
-  static String get updateProfileUrl => '$BASE_URL/api/auth/update-profile';
-  static String get changePasswordUrl => '$BASE_URL/api/auth/change-password';
+  static String updateProfileUrl(int userId) => '$BASE_URL/api/auth/update-profile/$userId';
+  static String changePasswordUrl(int userId) => '$BASE_URL/api/auth/change-password/$userId';
   static String switchRoleUrl(int userId) => '$BASE_URL/api/auth/switch-role/$userId';
 
   // Property endpoints
@@ -53,6 +53,13 @@ class ApiConfig {
     'User-Agent': 'GetHomeApp/1.0',
   };
 
+  // Headers for multipart requests (file uploads)
+  static Map<String, String> get multipartHeaders => {
+    'Accept': 'application/json',
+    'User-Agent': 'GetHomeApp/1.0',
+    // Don't set Content-Type for multipart requests - let http package handle it
+  };
+
   // Headers with auth token
   static Map<String, String> headersWithAuth(String? token) {
     final authHeaders = Map<String, String>.from(headers);
@@ -73,9 +80,9 @@ class ApiConfig {
   }
 
   // Get timeout durations
-  static Duration get connectionTimeout => const Duration(seconds: 30);
-  static Duration get receiveTimeout => const Duration(seconds: 30);
-  static Duration get sendTimeout => const Duration(seconds: 30);
+  static Duration get connectionTimeout => const Duration(seconds: 60);
+  static Duration get receiveTimeout => const Duration(seconds: 60);
+  static Duration get sendTimeout => const Duration(seconds: 60);
 
   // Error response codes
   static const int SUCCESS = 200;
@@ -131,4 +138,14 @@ class ApiConfig {
   // Environment configuration
   static bool get isDevelopment => BASE_URL.contains('localhost') || BASE_URL.contains('10.0.2.2');
   static bool get isProduction => !isDevelopment;
+
+  // Debug helper
+  static void printDebugInfo() {
+    print('=== API Configuration Debug ===');
+    print('Base URL: $BASE_URL');
+    print('Add Property URL: $addPropertyUrl');
+    print('Is Development: $isDevelopment');
+    print('Connection Timeout: ${connectionTimeout.inSeconds}s');
+    print('===============================');
+  }
 }
