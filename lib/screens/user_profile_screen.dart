@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 import 'login_screen.dart';
 import 'buyer_dashboard_screen.dart';
 import 'seller_dashboard_screen.dart';
@@ -16,8 +17,6 @@ class UserProfileScreen extends StatefulWidget {
 }
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
-
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _fullNameController;
   late final TextEditingController _emailController;
@@ -73,21 +72,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       };
 
       final response = await http.put(
-        Uri.parse('$API_BASE_URL/api/auth/update-profile/${UserSession.getCurrentUserId()}'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.updateProfileUrl(UserSession.getCurrentUserId())),
+        headers: ApiConfig.headers,
         body: json.encode(requestBody),
       );
 
       if (response.statusCode == 200) {
         // Update local user session
-        final currentUser = UserSession.getCurrentUser() ?? {};
-        currentUser['fullName'] = _fullNameController.text.trim();
-        currentUser['email'] = _emailController.text.trim();
-        currentUser['phoneNumber'] = _phoneController.text.trim();
-        UserSession.setCurrentUser(currentUser);
+        UserSession.updateUserProfile(
+          fullName: _fullNameController.text.trim(),
+          email: _emailController.text.trim(),
+          phoneNumber: _phoneController.text.trim(),
+        );
 
         _showSuccessMessage('Profile updated successfully');
         setState(() => _isEditingProfile = false);
@@ -114,11 +110,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       };
 
       final response = await http.put(
-        Uri.parse('$API_BASE_URL/api/auth/change-password/${UserSession.getCurrentUserId()}'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.changePasswordUrl(UserSession.getCurrentUserId())),
+        headers: ApiConfig.headers,
         body: json.encode(requestBody),
       );
 
@@ -138,7 +131,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _switchRole() async {
     final currentRole = UserSession.getCurrentUserRole();
-    final newRole = currentRole == 'buyer' ? 'seller' : 'buyer';
+    final newRole = currentRole.toLowerCase() == 'buyer' ? 'Seller' : 'Buyer';
 
     showDialog(
       context: context,
@@ -181,28 +174,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     try {
       final response = await http.put(
-        Uri.parse('$API_BASE_URL/api/auth/switch-role/${UserSession.getCurrentUserId()}'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.switchRoleUrl(UserSession.getCurrentUserId())),
+        headers: ApiConfig.headers,
         body: json.encode(newRole),
       );
 
       if (response.statusCode == 200) {
         // Update local user session
-        final currentUser = UserSession.getCurrentUser() ?? {};
-        currentUser['role'] = newRole;
-        UserSession.setCurrentUser(currentUser);
+        UserSession.updateUserRole(newRole.toLowerCase());
 
         _showSuccessMessage('Role switched to ${newRole.toUpperCase()} successfully');
 
         // Navigate to appropriate dashboard
+        await Future.delayed(const Duration(seconds: 1));
+
         if (mounted) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (context) => newRole == 'buyer'
+              builder: (context) => newRole.toLowerCase() == 'buyer'
                   ? const BuyerDashboardScreen()
                   : const SellerDashboardScreen(),
             ),
@@ -418,9 +408,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 radius: 50,
                 backgroundColor: Colors.white.withOpacity(0.2),
                 child: Text(
-                  UserSession.getCurrentUserName().isNotEmpty
-                      ? UserSession.getCurrentUserName()[0].toUpperCase()
-                      : 'U',
+                  UserSession.getUserInitials(),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 32,
@@ -443,7 +431,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: UserSession.getCurrentUserRole() == 'buyer'
+                  color: UserSession.getCurrentUserRole().toLowerCase() == 'buyer'
                       ? Colors.blue.withOpacity(0.3)
                       : Colors.green.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(15),
@@ -690,7 +678,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               if (!_isChangingPassword && !_isEditingProfile) ...[
                 const SizedBox(height: 16),
                 _buildActionButton(
-                  'Switch to ${UserSession.getCurrentUserRole() == 'buyer' ? 'Seller' : 'Buyer'}',
+                  'Switch to ${UserSession.getCurrentUserRole().toLowerCase() == 'buyer' ? 'Seller' : 'Buyer'}',
                   Icons.swap_horiz,
                   _switchRole,
                 ),
@@ -769,11 +757,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Colors.red),
         ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.red),
-        ),
-        errorStyle: const TextStyle(color: Colors.red),
       ),
     );
   }

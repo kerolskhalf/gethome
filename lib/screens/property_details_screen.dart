@@ -1,8 +1,10 @@
-// lib/screens/property_details_screen.dart (for buyers)
+// lib/screens/property_details_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 
 class PropertyDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> property;
@@ -16,133 +18,32 @@ class PropertyDetailsScreen extends StatefulWidget {
 class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   bool _isSaved = false;
   bool _isLoadingContact = false;
-  DateTime? _selectedViewingDate;
+  bool _isCreatingViewingRequest = false;
   Map<String, dynamic>? _contactInfo;
 
-  // Replace with your actual API base URL
-  static const String API_BASE_URL = 'https://getawayanapp.runasp.net';
-
-  String? _validatePropertyId() {
+  Future<void> _getSellerContact() async {
     final propertyId = widget.property['id'];
     if (propertyId == null) {
-      return 'Property ID is missing';
-    }
-    if (propertyId.toString().isEmpty) {
-      return 'Property ID cannot be empty';
-    }
-    // Additional validation for ID format if needed
-    final id = int.tryParse(propertyId.toString());
-    if (id == null || id <= 0) {
-      return 'Invalid property ID format';
-    }
-    return null;
-  }
-
-  void _toggleSave() {
-    setState(() {
-      _isSaved = !_isSaved;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_isSaved ? 'Property saved to favorites' : 'Property removed from favorites'),
-        backgroundColor: _isSaved ? Colors.green : Colors.grey,
-      ),
-    );
-  }
-
-  void _scheduleViewing() async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
-    );
-
-    if (pickedDate != null) {
-      final TimeOfDay? pickedTime = await showTimePicker(
-        context: context,
-        initialTime: const TimeOfDay(hour: 10, minute: 0),
-      );
-
-      if (pickedTime != null) {
-        setState(() {
-          _selectedViewingDate = DateTime(
-            pickedDate.year,
-            pickedDate.month,
-            pickedDate.day,
-            pickedTime.hour,
-            pickedTime.minute,
-          );
-        });
-
-        // Show confirmation
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF234E70),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-              title: const Text(
-                'Viewing Scheduled',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: Text(
-                'Your viewing is scheduled for ${_selectedViewingDate!.toString().substring(0, 16)}',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _getSellerContact() async {
-    // Validate property ID first
-    final idError = _validatePropertyId();
-    if (idError != null) {
-      _showErrorMessage(idError);
+      _showErrorMessage('Property ID is missing');
       return;
     }
 
     setState(() => _isLoadingContact = true);
 
     try {
-      final propertyId = widget.property['id'].toString();
-      final uri = Uri.parse('$API_BASE_URL/api/properties/$propertyId/contact');
-
-      print('Contact request URL: $uri'); // Debug log
-
       final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          // Add authorization header if needed
-          // 'Authorization': 'Bearer $your_token_here',
-        },
+        Uri.parse(ApiConfig.propertyContactUrl(propertyId)),
+        headers: ApiConfig.headers,
       );
 
       setState(() => _isLoadingContact = false);
 
       if (!mounted) return;
 
-      print('Contact response status: ${response.statusCode}'); // Debug log
-      print('Contact response body: ${response.body}'); // Debug log
-
       if (response.statusCode == 200) {
-        // Success - parse contact information
         try {
-          final contactData = json.decode(response.body);
+          final data = json.decode(response.body);
+          final contactData = data['data'] ?? data;
           setState(() {
             _contactInfo = contactData;
           });
@@ -150,61 +51,64 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         } catch (e) {
           _showErrorMessage('Failed to parse contact information');
         }
-      } else if (response.statusCode == 400) {
-        // Handle validation errors
-        _handle400ValidationError(response.body);
-      } else if (response.statusCode == 401) {
-        _showErrorMessage('Unauthorized. Please log in to view contact information.');
       } else if (response.statusCode == 404) {
-        _showErrorMessage('Property not found or contact information unavailable.');
-      } else if (response.statusCode == 403) {
-        _showErrorMessage('You don\'t have permission to view this contact information.');
+        _showErrorMessage('Contact information not available for this property');
       } else {
-        _showErrorMessage('Server error (${response.statusCode}). Please try again later.');
+        _showErrorMessage('Failed to get contact information');
       }
-
     } catch (e) {
       setState(() => _isLoadingContact = false);
       if (mounted) {
-        print('Contact network error: $e'); // Debug log
-        _showErrorMessage('Network error. Please check your internet connection and try again.');
+        _showErrorMessage('Network error. Please check your connection.');
       }
     }
   }
 
-  void _handle400ValidationError(String responseBody) {
+  Future<void> _createViewingRequest() async {
+    final propertyId = widget.property['id'];
+    final userId = UserSession.getCurrentUserId();
+
+    if (propertyId == null || userId <= 0) {
+      _showErrorMessage('Unable to create viewing request');
+      return;
+    }
+
+    setState(() => _isCreatingViewingRequest = true);
+
     try {
-      final errorData = json.decode(responseBody);
+      final requestBody = {
+        'propertyId': propertyId,
+        'userId': userId,
+      };
 
-      if (errorData.containsKey('errors')) {
-        // Handle validation errors object
-        final errors = errorData['errors'] as Map<String, dynamic>;
-        final List<String> errorMessages = [];
+      final response = await http.post(
+        Uri.parse(ApiConfig.createViewingRequestUrl),
+        headers: ApiConfig.headers,
+        body: json.encode(requestBody),
+      );
 
-        errors.forEach((field, messages) {
-          if (messages is List) {
-            for (final message in messages) {
-              errorMessages.add('$field: $message');
-            }
-          } else {
-            errorMessages.add('$field: $messages');
-          }
-        });
+      setState(() => _isCreatingViewingRequest = false);
 
-        _showErrorMessage('Validation errors:\n${errorMessages.join('\n')}');
-      } else if (errorData.containsKey('message')) {
-        _showErrorMessage(errorData['message']);
-      } else if (errorData.containsKey('title')) {
-        String message = errorData['title'];
-        if (errorData.containsKey('detail')) {
-          message += ': ${errorData['detail']}';
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _showSuccessMessage(data['message'] ?? 'Viewing request created successfully');
+      } else if (response.statusCode == 400) {
+        try {
+          final errorData = json.decode(response.body);
+          _showErrorMessage(errorData['message'] ?? 'Failed to create viewing request');
+        } catch (e) {
+          _showErrorMessage('You may already have a pending request for this property');
         }
-        _showErrorMessage(message);
       } else {
-        _showErrorMessage('Invalid property ID or contact information unavailable.');
+        _showErrorMessage('Failed to create viewing request');
       }
     } catch (e) {
-      _showErrorMessage('Failed to get contact information. Please check the property ID and try again.');
+      setState(() => _isCreatingViewingRequest = false);
+      if (mounted) {
+        _showErrorMessage('Network error. Please try again.');
+      }
     }
   }
 
@@ -221,35 +125,21 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (contactData['sellerName'] != null)
-              _buildContactOption(
-                Icons.person,
-                'Seller Name',
-                contactData['sellerName'].toString(),
-              ),
-            const SizedBox(height: 16),
-            if (contactData['phone'] != null)
+            if (contactData['sellerPhoneNumber'] != null)
               _buildContactOption(
                 Icons.phone,
                 'Phone Number',
-                contactData['phone'].toString(),
-                onTap: () => _initiateCall(contactData['phone'].toString()),
+                contactData['sellerPhoneNumber'].toString(),
+                onTap: () => _initiateCall(contactData['sellerPhoneNumber'].toString()),
               ),
-            const SizedBox(height: 16),
-            if (contactData['email'] != null)
+            if (contactData['sellerPhoneNumber'] != null)
+              const SizedBox(height: 16),
+            if (contactData['sellerEmail'] != null)
               _buildContactOption(
                 Icons.email,
                 'Email',
-                contactData['email'].toString(),
-                onTap: () => _initiateEmail(contactData['email'].toString()),
-              ),
-            const SizedBox(height: 16),
-            if (contactData['whatsapp'] != null)
-              _buildContactOption(
-                Icons.chat,
-                'WhatsApp',
-                contactData['whatsapp'].toString(),
-                onTap: () => _initiateWhatsApp(contactData['whatsapp'].toString()),
+                contactData['sellerEmail'].toString(),
+                onTap: () => _initiateEmail(contactData['sellerEmail'].toString()),
               ),
           ],
         ),
@@ -269,7 +159,6 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   Widget _buildContactOption(IconData icon, String title, String value, {VoidCallback? onTap}) {
     return InkWell(
       onTap: onTap ?? (() {
-        // Copy to clipboard functionality
         _showSuccessMessage('$title copied to clipboard');
       }),
       child: Container(
@@ -318,22 +207,11 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   void _initiateCall(String phoneNumber) {
     Navigator.pop(context);
     _showSuccessMessage('Opening phone app to call $phoneNumber');
-    // In a real app, you would use url_launcher to open the phone app
-    // launch('tel:$phoneNumber');
   }
 
   void _initiateEmail(String email) {
     Navigator.pop(context);
     _showSuccessMessage('Opening email app for $email');
-    // In a real app, you would use url_launcher to open the email app
-    // launch('mailto:$email?subject=Property Inquiry');
-  }
-
-  void _initiateWhatsApp(String whatsapp) {
-    Navigator.pop(context);
-    _showSuccessMessage('Opening WhatsApp for $whatsapp');
-    // In a real app, you would use url_launcher to open WhatsApp
-    // launch('https://wa.me/$whatsapp');
   }
 
   void _showErrorMessage(String message) {
@@ -342,13 +220,6 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         content: Text(message),
         backgroundColor: Colors.red,
         duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: 'Dismiss',
-          textColor: Colors.white,
-          onPressed: () {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          },
-        ),
       ),
     );
   }
@@ -361,6 +232,18 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  String _getStatusText(dynamic status) {
+    if (status == 0 || status == 'Available') return 'Available';
+    if (status == 1 || status == 'NotAvailable') return 'Not Available';
+    return 'Unknown';
+  }
+
+  Color _getStatusColor(dynamic status) {
+    if (status == 0 || status == 'Available') return Colors.green;
+    if (status == 1 || status == 'NotAvailable') return Colors.red;
+    return Colors.grey;
   }
 
   @override
@@ -409,7 +292,17 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 actions: [
                   IconButton(
                     icon: Icon(_isSaved ? Icons.favorite : Icons.favorite_border),
-                    onPressed: _toggleSave,
+                    onPressed: () {
+                      setState(() {
+                        _isSaved = !_isSaved;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(_isSaved ? 'Added to favorites' : 'Removed from favorites'),
+                          backgroundColor: _isSaved ? Colors.green : Colors.grey,
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -421,63 +314,79 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title and price
+                      // Title, price and status
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Expanded(
-                            child: Text(
-                              widget.property['title'] ?? '',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.property['houseType'] ?? 'Property',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Property ID: ${widget.property['id']}',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '\$${widget.property['price']}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(widget.property['status'])
+                                      .withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _getStatusText(widget.property['status']),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '\$${widget.property['price'] ?? 0}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (widget.property['pricePerM2'] != null)
+                                Text(
+                                  '\$${widget.property['pricePerM2']} per m²',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
 
-                      // Property ID display
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.tag,
-                            color: Colors.white.withOpacity(0.8),
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Property ID: ${widget.property['id'] ?? 'N/A'}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Address
+                      // Location
                       Row(
                         children: [
                           Icon(
@@ -488,7 +397,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              widget.property['address'] ?? '',
+                              '${widget.property['city'] ?? ''}, ${widget.property['region'] ?? ''}',
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.8),
                                 fontSize: 16,
@@ -497,6 +406,30 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                           ),
                         ],
                       ),
+
+                      // High Floor indicator
+                      if (widget.property['isHighFloor'] == true) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.height,
+                              color: Colors.blue.withOpacity(0.8),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'High Floor Property',
+                              style: TextStyle(
+                                color: Colors.blue.withOpacity(0.8),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+
                       const SizedBox(height: 20),
 
                       // Property features
@@ -506,45 +439,37 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                           color: Colors.white.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(15),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        child: Column(
                           children: [
-                            _buildFeature(
-                              Icons.straighten,
-                              'Size',
-                              '${widget.property['size']} m²',
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildFeature(
+                                  Icons.straighten,
+                                  'Size',
+                                  '${widget.property['size'] ?? 0} m²',
+                                ),
+                                _buildFeature(
+                                  Icons.king_bed,
+                                  'Bedrooms',
+                                  '${widget.property['bedrooms'] ?? 0}',
+                                ),
+                                _buildFeature(
+                                  Icons.bathtub,
+                                  'Bathrooms',
+                                  '${widget.property['bathrooms'] ?? 0}',
+                                ),
+                              ],
                             ),
-                            _buildFeature(
-                              Icons.king_bed,
-                              'Bedrooms',
-                              '${widget.property['bedrooms']}',
-                            ),
-                            _buildFeature(
-                              Icons.bathtub,
-                              'Bathrooms',
-                              '${widget.property['bathrooms']}',
-                            ),
+                            if (widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0) ...[
+                              const SizedBox(height: 16),
+                              _buildFeature(
+                                Icons.room,
+                                'Total Rooms',
+                                '${widget.property['totalRooms']}',
+                              ),
+                            ],
                           ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Description
-                      const Text(
-                        'Description',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.property['description'] ?? '',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 16,
-                          height: 1.5,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -554,9 +479,10 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                         children: [
                           Expanded(
                             child: _buildActionButton(
-                              'Schedule Viewing',
+                              'Request Viewing',
                               Icons.calendar_today,
-                              _scheduleViewing,
+                              _isCreatingViewingRequest ? null : _createViewingRequest,
+                              isLoading: _isCreatingViewingRequest,
                             ),
                           ),
                           const SizedBox(width: 16),

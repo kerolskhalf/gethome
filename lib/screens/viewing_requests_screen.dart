@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 
 class ViewingRequestsScreen extends StatefulWidget {
   final bool isSellerView;
@@ -20,8 +21,6 @@ class ViewingRequestsScreen extends StatefulWidget {
 }
 
 class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
-
   List<Map<String, dynamic>> _viewingRequests = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -39,18 +38,15 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       String endpoint;
       if (widget.isSellerView && widget.propertyId != null) {
         // Get viewing requests for specific property (seller view)
-        endpoint = '$API_BASE_URL/api/viewing-requests/property/${widget.propertyId}';
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/property/${widget.propertyId}';
       } else {
         // Get all viewing requests for user (buyer view)
-        endpoint = '$API_BASE_URL/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
       }
 
       final response = await http.get(
         Uri.parse(endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
@@ -76,11 +72,8 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   Future<void> _updateRequestStatus(int requestId, String status) async {
     try {
       final response = await http.put(
-        Uri.parse('$API_BASE_URL/api/viewing-requests/update/$requestId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.updateViewingRequestUrl(requestId)),
+        headers: ApiConfig.headers,
         body: json.encode(status),
       );
 
@@ -92,31 +85,6 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       }
     } catch (e) {
       _showErrorMessage('Error updating request: $e');
-    }
-  }
-
-  Future<void> _createViewingRequest(int propertyId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/api/viewing-requests/create'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: json.encode({
-          'propertyId': propertyId,
-          'userId': UserSession.getCurrentUserId(),
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        _showSuccessMessage('Viewing request created successfully');
-        _loadViewingRequests();
-      } else {
-        _showErrorMessage('Failed to create viewing request');
-      }
-    } catch (e) {
-      _showErrorMessage('Error creating request: $e');
     }
   }
 
@@ -159,10 +127,10 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
               _buildInfoRow('Property', request['propertyTitle'] ?? 'Property'),
               _buildInfoRow('Address', request['propertyAddress'] ?? 'N/A'),
             ],
-            _buildInfoRow('Status', request['status'] ?? 'Pending'),
+            _buildInfoRow('Status', _getStatusText(request['status'])),
             _buildInfoRow('Requested Date',
-                request['requestedDate'] != null
-                    ? DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.parse(request['requestedDate']))
+                request['requestDate'] != null
+                    ? DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.parse(request['requestDate']))
                     : 'N/A'
             ),
             if (request['message'] != null && request['message'].isNotEmpty)
@@ -201,6 +169,45 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         ],
       ),
     );
+  }
+
+  String _getStatusText(dynamic status) {
+    // Backend uses enum Status with Available = 0, NotAvailable = 1
+    if (status == 0 || status == 'Available') return 'Pending';
+    if (status == 1 || status == 'NotAvailable') return 'Approved';
+    if (status is String) {
+      switch (status.toLowerCase()) {
+        case 'pending':
+          return 'Pending';
+        case 'approved':
+          return 'Approved';
+        case 'rejected':
+          return 'Rejected';
+        case 'cancelled':
+          return 'Cancelled';
+        case 'completed':
+          return 'Completed';
+        default:
+          return status;
+      }
+    }
+    return 'Unknown';
+  }
+
+  Color _getStatusColor(dynamic status) {
+    final statusText = _getStatusText(status).toLowerCase();
+    switch (statusText) {
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      case 'cancelled':
+        return Colors.orange;
+      case 'completed':
+        return Colors.blue;
+      default:
+        return Colors.yellow;
+    }
   }
 
   @override
@@ -365,7 +372,8 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   }
 
   Widget _buildRequestCard(Map<String, dynamic> request) {
-    final status = request['status'] ?? 'Pending';
+    final status = request['status'];
+    final statusText = _getStatusText(status);
     final statusColor = _getStatusColor(status);
 
     return Container(
@@ -405,7 +413,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      status,
+                      statusText,
                       style: TextStyle(
                         color: statusColor,
                         fontSize: 12,
@@ -416,7 +424,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              if (request['requestedDate'] != null)
+              if (request['requestDate'] != null)
                 Row(
                   children: [
                     Icon(
@@ -427,7 +435,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                     const SizedBox(width: 4),
                     Text(
                       DateFormat('MMM dd, yyyy - HH:mm').format(
-                          DateTime.parse(request['requestedDate'])
+                          DateTime.parse(request['requestDate'])
                       ),
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.7),
@@ -457,13 +465,13 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                     ),
                   ],
                 ),
-              if (widget.isSellerView && status == 'Pending') ...[
+              if (widget.isSellerView && statusText.toLowerCase() == 'pending') ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => _updateRequestStatus(request['id'], 'Approved'),
+                        onPressed: () => _updateRequestStatus(request['id'], 'approved'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green.withOpacity(0.2),
                           shape: RoundedRectangleBorder(
@@ -477,7 +485,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => _updateRequestStatus(request['id'], 'Rejected'),
+                        onPressed: () => _updateRequestStatus(request['id'], 'rejected'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red.withOpacity(0.2),
                           shape: RoundedRectangleBorder(
@@ -496,18 +504,5 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         ),
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'approved':
-        return Colors.green;
-      case 'rejected':
-        return Colors.red;
-      case 'cancelled':
-        return Colors.orange;
-      default:
-        return Colors.blue;
-    }
   }
 }

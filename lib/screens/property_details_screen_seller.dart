@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
+import '../utils/api_config.dart';
 
 class PropertyDetailsScreenSeller extends StatefulWidget {
   final Map<String, dynamic> property;
@@ -22,23 +23,23 @@ class PropertyDetailsScreenSeller extends StatefulWidget {
 }
 
 class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSeller> {
-  // API Configuration
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
+  bool _isDeleting = false;
 
+  // Mock viewing requests - in a real app, these would come from the backend
   List<Map<String, dynamic>> _viewingRequests = [
     {
+      'id': 1,
       'buyerName': 'John Doe',
-      'date': DateTime.now().add(const Duration(days: 1)),
-      'status': 'Pending'
+      'requestDate': DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
+      'status': 0, // Pending
     },
     {
+      'id': 2,
       'buyerName': 'Jane Smith',
-      'date': DateTime.now().add(const Duration(days: 2)),
-      'status': 'Approved'
+      'requestDate': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+      'status': 1, // Approved
     },
   ];
-
-  bool _isDeleting = false;
 
   void _deleteProperty() {
     showDialog(
@@ -92,11 +93,8 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     try {
       final propertyId = widget.property['id'];
       final response = await http.delete(
-        Uri.parse('$API_BASE_URL/api/properties/delete/$propertyId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse(ApiConfig.deletePropertyUrl(propertyId)),
+        headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
@@ -130,7 +128,9 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
         );
       }
     } finally {
-      setState(() => _isDeleting = false);
+      if (mounted) {
+        setState(() => _isDeleting = false);
+      }
     }
   }
 
@@ -159,11 +159,12 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
   }
 
   void _manageViewingRequest(int index, String action) {
+    // In a real app, this would call the backend API
     setState(() {
       if (action == 'approve') {
-        _viewingRequests[index]['status'] = 'Approved';
+        _viewingRequests[index]['status'] = 1; // Approved
       } else if (action == 'reject') {
-        _viewingRequests[index]['status'] = 'Rejected';
+        _viewingRequests[index]['status'] = 2; // Rejected (custom status)
       }
     });
 
@@ -175,31 +176,39 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     );
   }
 
-  String _getStatusText(int status) {
+  String _getStatusText(dynamic status) {
+    if (status == 0 || status == 'Available') return 'Available';
+    if (status == 1 || status == 'NotAvailable') return 'Not Available';
+    return 'Unknown';
+  }
+
+  Color _getStatusColor(dynamic status) {
+    if (status == 0 || status == 'Available') return Colors.green;
+    if (status == 1 || status == 'NotAvailable') return Colors.red;
+    return Colors.grey;
+  }
+
+  String _getViewingRequestStatusText(dynamic status) {
     switch (status) {
       case 0:
-        return 'Available';
-      case 1:
-        return 'Sold';
-      case 2:
-        return 'Rented';
-      case 3:
         return 'Pending';
+      case 1:
+        return 'Approved';
+      case 2:
+        return 'Rejected';
       default:
         return 'Unknown';
     }
   }
 
-  Color _getStatusColor(int status) {
+  Color _getViewingRequestStatusColor(dynamic status) {
     switch (status) {
       case 0:
-        return Colors.green;
-      case 1:
-        return Colors.red;
-      case 2:
-        return Colors.blue;
-      case 3:
         return Colors.orange;
+      case 1:
+        return Colors.green;
+      case 2:
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -313,12 +322,12 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _getStatusColor(widget.property['status'] ?? 0)
+                                  color: _getStatusColor(widget.property['status'])
                                       .withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  _getStatusText(widget.property['status'] ?? 0),
+                                  _getStatusText(widget.property['status']),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,
@@ -422,7 +431,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                                 ),
                               ],
                             ),
-                            if (widget.property['totalRooms'] != null) ...[
+                            if (widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0) ...[
                               const SizedBox(height: 16),
                               _buildFeature(
                                 Icons.room,
@@ -515,10 +524,10 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
           _buildInfoRow('Size', '${widget.property['size'] ?? 0} m²'),
           _buildInfoRow('Bedrooms', '${widget.property['bedrooms'] ?? 0}'),
           _buildInfoRow('Bathrooms', '${widget.property['bathrooms'] ?? 0}'),
-          if (widget.property['totalRooms'] != null)
+          if (widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0)
             _buildInfoRow('Total Rooms', '${widget.property['totalRooms']}'),
           _buildInfoRow('High Floor', widget.property['isHighFloor'] == true ? 'Yes' : 'No'),
-          _buildInfoRow('Status', _getStatusText(widget.property['status'] ?? 0)),
+          _buildInfoRow('Status', _getStatusText(widget.property['status'])),
           _buildInfoRow('Price', '\$${widget.property['price'] ?? 0}'),
           if (widget.property['pricePerM2'] != null)
             _buildInfoRow('Price per m²', '\$${widget.property['pricePerM2']}'),
@@ -577,7 +586,9 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
       children: _viewingRequests.asMap().entries.map((entry) {
         final index = entry.key;
         final request = entry.value;
-        final status = request['status'] as String;
+        final status = request['status'];
+        final statusText = _getViewingRequestStatusText(status);
+        final statusColor = _getViewingRequestStatusColor(status);
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -606,15 +617,11 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: status == 'Pending'
-                          ? Colors.orange.withOpacity(0.2)
-                          : status == 'Approved'
-                          ? Colors.green.withOpacity(0.2)
-                          : Colors.red.withOpacity(0.2),
+                      color: statusColor.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      status,
+                      statusText,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -625,13 +632,13 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
               ),
               const SizedBox(height: 8),
               Text(
-                'Requested for: ${(request['date'] as DateTime).toString().substring(0, 16)}',
+                'Requested on: ${DateTime.parse(request['requestDate']).toString().substring(0, 16)}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.8),
                   fontSize: 14,
                 ),
               ),
-              if (status == 'Pending')
+              if (status == 0) // Pending
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Row(
