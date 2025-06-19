@@ -1,9 +1,9 @@
 // lib/screens/favorites_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/user_session.dart';
+import '../utils/api_config.dart';
 import 'property_details_screen.dart';
 import 'property_comparison_screen.dart';
 
@@ -15,8 +15,6 @@ class FavoritesScreen extends StatefulWidget {
 }
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
-  static const String API_BASE_URL = 'https://gethome.runasp.net';
-
   List<Map<String, dynamic>> _favoriteProperties = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -34,17 +32,31 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse('$API_BASE_URL/api/favorites/user/${UserSession.getCurrentUserId()}?page=1&pageSize=50'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse('${ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())}?page=1&pageSize=50'),
+        headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+
+        // Handle different response formats
+        List<Map<String, dynamic>> favorites;
+        if (data is List) {
+          favorites = List<Map<String, dynamic>>.from(data);
+        } else {
+          favorites = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        }
+
+        // Extract property information from favorites
+        List<Map<String, dynamic>> properties = [];
+        for (var favorite in favorites) {
+          if (favorite['property'] != null) {
+            properties.add(Map<String, dynamic>.from(favorite['property']));
+          }
+        }
+
         setState(() {
-          _favoriteProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+          _favoriteProperties = properties;
           _errorMessage = null;
         });
       } else {
@@ -64,11 +76,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Future<void> _removeFromFavorites(int propertyId) async {
     try {
       final response = await http.delete(
-        Uri.parse('$API_BASE_URL/api/favorites/remove?userId=${UserSession.getCurrentUserId()}&propertyId=$propertyId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        Uri.parse('${ApiConfig.removeFavoriteUrl}?userId=${UserSession.getCurrentUserId()}&propertyId=$propertyId'),
+        headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
@@ -208,6 +217,41 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPropertyImage(String? imagePath) {
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 50, color: Colors.grey),
+        ),
+      );
+    }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+          ),
+        );
+      },
     );
   }
 
@@ -442,20 +486,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                             top: Radius.circular(20),
                           ),
                         ),
-                        child: property['imagePath'] != null &&
-                            property['imagePath'].isNotEmpty
-                            ? ClipRRect(
+                        child: ClipRRect(
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(20),
                           ),
-                          child: Image.file(
-                            File(property['imagePath']),
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                        )
-                            : const Center(
-                          child: Icon(Icons.home, size: 50, color: Colors.grey),
+                          child: _buildPropertyImage(property['imagePath']),
                         ),
                       ),
 

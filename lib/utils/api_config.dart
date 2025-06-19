@@ -1,4 +1,6 @@
 // lib/utils/api_config.dart
+import 'dart:convert';
+
 class ApiConfig {
   // Main API URL - Update this to your actual backend URL
   static const String BASE_URL = 'https://gethome.runasp.net';
@@ -31,19 +33,44 @@ class ApiConfig {
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
-  // FIX: Add image URL building
+  // Image handling
   static String getImageUrl(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty) {
-      return ''; // Return empty string for null/empty paths
+      return '';
     }
+
+    // Handle different image path formats
+    String cleanPath = imagePath;
+
     // Remove leading slash if present
-    final cleanPath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+    if (cleanPath.startsWith('/')) {
+      cleanPath = cleanPath.substring(1);
+    }
+
+    // Remove base URL if already present (avoid double URL)
+    if (cleanPath.startsWith('http')) {
+      return cleanPath;
+    }
+
+    // Handle images path prefix
+    if (cleanPath.startsWith('images/')) {
+      cleanPath = cleanPath.substring(7);
+    }
+
     return '$BASE_URL/images/$cleanPath';
   }
 
   // Helper method to check if image URL is valid
   static bool isValidImagePath(String? imagePath) {
-    return imagePath != null && imagePath.isNotEmpty;
+    if (imagePath == null || imagePath.isEmpty) {
+      return false;
+    }
+
+    // Check if it's a valid image file extension
+    final validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    final lowerPath = imagePath.toLowerCase();
+
+    return validExtensions.any((ext) => lowerPath.endsWith(ext));
   }
 
   // Common headers for JSON requests
@@ -90,31 +117,88 @@ class ApiConfig {
   // Helper method to parse error response
   static String parseErrorResponse(String responseBody) {
     try {
-      final Map<String, dynamic> errorData =
-      responseBody.isNotEmpty ? Map<String, dynamic>.from(
-          responseBody.startsWith('{')
-              ? {'message': responseBody}
-              : {'message': 'Unknown error'}
-      ) : {'message': 'Empty response'};
+      if (responseBody.isEmpty) {
+        return 'Empty response from server';
+      }
 
-      if (errorData.containsKey('message')) {
-        return errorData['message'].toString();
-      } else if (errorData.containsKey('errors')) {
-        final errors = errorData['errors'] as Map<String, dynamic>;
-        final errorMessages = <String>[];
-        errors.forEach((key, value) {
-          if (value is List) {
-            errorMessages.addAll(value.cast<String>());
+      // Try to parse as JSON
+      if (responseBody.trim().startsWith('{')) {
+        final Map<String, dynamic> errorData = json.decode(responseBody);
+
+        if (errorData.containsKey('message')) {
+          return errorData['message'].toString();
+        } else if (errorData.containsKey('errors')) {
+          final errors = errorData['errors'];
+          final errorMessages = <String>[];
+
+          if (errors is Map<String, dynamic>) {
+            errors.forEach((key, value) {
+              if (value is List) {
+                errorMessages.addAll(value.cast<String>());
+              } else {
+                errorMessages.add(value.toString());
+              }
+            });
+            return errorMessages.join('\n');
+          } else if (errors is List) {
+            return errors.join('\n');
           } else {
-            errorMessages.add(value.toString());
+            return errors.toString();
           }
-        });
-        return errorMessages.join('\n');
+        } else {
+          return 'An error occurred';
+        }
       } else {
-        return 'An error occurred';
+        // If not JSON, return as is (might be plain text error)
+        return responseBody;
       }
     } catch (e) {
-      return 'Failed to parse error response';
+      // If JSON parsing fails, return the original response
+      return responseBody.isNotEmpty ? responseBody : 'Failed to parse error response';
     }
+  }
+
+  // Pagination helper
+  static Map<String, String> buildPaginationParams({
+    int page = 1,
+    int pageSize = 10,
+    Map<String, String>? additionalParams,
+  }) {
+    final params = <String, String>{
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
+
+    if (additionalParams != null) {
+      params.addAll(additionalParams);
+    }
+
+    return params;
+  }
+
+  // Image cache helper
+  static String getCachedImageKey(String imagePath) {
+    return 'cached_image_${imagePath.hashCode}';
+  }
+
+  // Network error handling
+  static String handleNetworkError(dynamic error) {
+    if (error.toString().contains('SocketException')) {
+      return 'No internet connection. Please check your network.';
+    } else if (error.toString().contains('TimeoutException')) {
+      return 'Connection timeout. Please try again.';
+    } else if (error.toString().contains('FormatException')) {
+      return 'Invalid server response format.';
+    } else {
+      return 'Network error: ${error.toString()}';
+    }
+  }
+
+  // Debug logging (only in debug mode)
+  static void debugLog(String message) {
+    assert(() {
+      print('[API_DEBUG] $message');
+      return true;
+    }());
   }
 }

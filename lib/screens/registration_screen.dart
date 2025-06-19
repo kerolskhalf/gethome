@@ -40,6 +40,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     super.dispose();
   }
 
+  // FIX: Convert role string to integer for backend
+  int _getRoleAsInteger(String role) {
+    switch (role.toLowerCase()) {
+      case 'seller':
+        return 0; // Backend enum: Seller = 0
+      case 'buyer':
+        return 1; // Backend enum: Buyer = 1
+      default:
+        return 1; // Default to Buyer
+    }
+  }
+
   Future<void> _handleRegistration() async {
     if (_selectedDateOfBirth == null) {
       _showErrorMessage('Please select your date of birth');
@@ -51,6 +63,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // FIX: Prepare request body with correct role format
       final requestBody = {
         'fullName': _fullNameController.text.trim(),
         'email': _emailController.text.trim(),
@@ -59,8 +72,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         'phoneNumber': _phoneNumberController.text.trim().isEmpty
             ? null
             : _phoneNumberController.text.trim(),
+        'role': _getRoleAsInteger(_selectedRole), // Send as integer
         'dateOfBirth': _selectedDateOfBirth!.toUtc().toIso8601String(),
       };
+
+      print('Registration request body: $requestBody'); // Debug log
 
       final response = await http.post(
         Uri.parse(ApiConfig.registerUrl),
@@ -72,15 +88,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       if (!mounted) return;
 
+      print('Registration response status: ${response.statusCode}');
+      print('Registration response body: ${response.body}');
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final responseData = json.decode(response.body);
 
-        // Store user data for immediate use
+        // Store user data for immediate use with string role for consistency
         UserSession.setCurrentUser({
           'userId': responseData['userId'] ?? 1,
           'fullName': _fullNameController.text.trim(),
           'email': _emailController.text.trim(),
-          'role': _selectedRole.toLowerCase(),
+          'role': _selectedRole.toLowerCase(), // Store as string for internal use
           'phoneNumber': _phoneNumberController.text.trim().isEmpty
               ? null
               : _phoneNumberController.text.trim(),
@@ -91,6 +110,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         await Future.delayed(const Duration(seconds: 1));
 
         if (mounted) {
+          // Navigate based on selected role
           if (_selectedRole.toLowerCase() == 'buyer') {
             Navigator.pushReplacement(
               context,
@@ -122,6 +142,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       if (mounted) {
         _showErrorMessage('Network error. Please check your connection.');
       }
+      print('Registration error: $e');
     }
   }
 
@@ -435,7 +456,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Register as',
+          'Register as *',
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
             fontSize: 16,
@@ -470,6 +491,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   setState(() {
                     _selectedRole = newValue;
                   });
+                  print('Selected role: $_selectedRole -> Integer: ${_getRoleAsInteger(_selectedRole)}'); // Debug
                 }
               },
             ),
@@ -574,9 +596,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
           ),
         )
-            : const Text(
-          'Create Account',
-          style: TextStyle(
+            : Text(
+          'Create Account as ${_selectedRole}',
+          style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Colors.white,

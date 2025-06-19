@@ -1,6 +1,5 @@
 // lib/screens/buyer_dashboard_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'property_details_screen.dart';
@@ -38,12 +37,17 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   List<Map<String, dynamic>> _allProperties = [];
   List<Map<String, dynamic>> _filteredProperties = [];
   bool _isLoadingProperties = false;
+  bool _isLoadingMore = false;
   String? _errorMessage;
 
   // Pagination
   int _currentPage = 1;
   int _pageSize = 10;
   int _totalCount = 0;
+  bool _hasMoreData = true;
+
+  // Scroll controller for pagination
+  final ScrollController _scrollController = ScrollController();
 
   // Responsive breakpoints
   static const double mobileBreakpoint = 600;
@@ -54,11 +58,13 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   void initState() {
     super.initState();
     _loadProperties();
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -92,7 +98,23 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     return 0.85;
   }
 
-  Future<void> _loadProperties() async {
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMoreData) {
+        _loadMoreProperties();
+      }
+    }
+  }
+
+  Future<void> _loadProperties({bool refresh = false}) async {
+    if (refresh) {
+      setState(() {
+        _currentPage = 1;
+        _allProperties.clear();
+        _hasMoreData = true;
+      });
+    }
+
     setState(() => _isLoadingProperties = true);
 
     try {
@@ -109,10 +131,10 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         queryParams['region'] = _region;
       }
       if (_priceRange.start > 0) {
-        queryParams['minPrice'] = _priceRange.start.toString();
+        queryParams['minPrice'] = _priceRange.start.round().toString();
       }
       if (_priceRange.end < 1000000) {
-        queryParams['maxPrice'] = _priceRange.end.toString();
+        queryParams['maxPrice'] = _priceRange.end.round().toString();
       }
       if (_minBedrooms > 0) {
         queryParams['minBedrooms'] = _minBedrooms.toString();
@@ -125,30 +147,87 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         queryParameters: queryParams,
       );
 
+      print('Loading properties from: $uri'); // Debug log
+
       final response = await http.get(
         uri,
         headers: ApiConfig.headers,
       );
 
+      print('Response status: ${response.statusCode}'); // Debug log
+      print('Response body: ${response.body}'); // Debug log
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        final newProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+
         setState(() {
-          _allProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+          if (refresh || _currentPage == 1) {
+            _allProperties = newProperties;
+          } else {
+            _allProperties.addAll(newProperties);
+          }
+
           _totalCount = data['totalCount'] ?? 0;
+          _hasMoreData = newProperties.length == _pageSize;
           _applyLocalSearch();
           _errorMessage = null;
         });
       } else {
         setState(() {
-          _errorMessage = 'Failed to load properties';
+          _errorMessage = 'Failed to load properties (${response.statusCode})';
         });
       }
     } catch (e) {
+      print('Error loading properties: $e'); // Debug log
       setState(() {
         _errorMessage = 'Network error: $e';
       });
     } finally {
       setState(() => _isLoadingProperties = false);
+    }
+  }
+
+  Future<void> _loadMoreProperties() async {
+    if (_isLoadingMore || !_hasMoreData) return;
+
+    setState(() => _isLoadingMore = true);
+
+    try {
+      _currentPage++;
+
+      final queryParams = <String, String>{
+        'page': _currentPage.toString(),
+        'pageSize': _pageSize.toString(),
+      };
+
+      if (_city.isNotEmpty) queryParams['city'] = _city;
+      if (_region.isNotEmpty) queryParams['region'] = _region;
+      if (_priceRange.start > 0) queryParams['minPrice'] = _priceRange.start.round().toString();
+      if (_priceRange.end < 1000000) queryParams['maxPrice'] = _priceRange.end.round().toString();
+      if (_minBedrooms > 0) queryParams['minBedrooms'] = _minBedrooms.toString();
+      if (_maxBedrooms < 10) queryParams['maxBedrooms'] = _maxBedrooms.toString();
+
+      final uri = Uri.parse(ApiConfig.searchPropertiesUrl).replace(
+        queryParameters: queryParams,
+      );
+
+      final response = await http.get(uri, headers: ApiConfig.headers);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final newProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+
+        setState(() {
+          _allProperties.addAll(newProperties);
+          _hasMoreData = newProperties.length == _pageSize;
+          _applyLocalSearch();
+        });
+      }
+    } catch (e) {
+      print('Error loading more properties: $e');
+    } finally {
+      setState(() => _isLoadingMore = false);
     }
   }
 
@@ -185,7 +264,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       _currentPage = 1;
       _isFilterVisible = false;
     });
-    _loadProperties();
+    _loadProperties(refresh: true);
   }
 
   void _resetFilters() {
@@ -199,7 +278,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       _currentPage = 1;
     });
     _searchController.clear();
-    _loadProperties();
+    _loadProperties(refresh: true);
   }
 
   void _handleLogout() {
@@ -452,7 +531,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       ),
       IconButton(
         icon: const Icon(Icons.refresh, color: Colors.white, size: 24),
-        onPressed: _loadProperties,
+        onPressed: () => _loadProperties(refresh: true),
         tooltip: 'Refresh',
       ),
       IconButton(
@@ -480,7 +559,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       ),
       IconButton(
         icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-        onPressed: _loadProperties,
+        onPressed: () => _loadProperties(refresh: true),
         tooltip: 'Refresh',
       ),
       PopupMenuButton<String>(
@@ -806,7 +885,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   }
 
   Widget _buildBody() {
-    if (_isLoadingProperties) {
+    if (_isLoadingProperties && _allProperties.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white),
       );
@@ -833,7 +912,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _loadProperties,
+              onPressed: () => _loadProperties(refresh: true),
               child: const Text('Retry'),
             ),
           ],
@@ -853,29 +932,46 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       return Padding(
         padding: EdgeInsets.all(horizontalPadding),
         child: GridView.builder(
+          controller: _scrollController,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             childAspectRatio: cardAspectRatio,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
-          itemCount: _filteredProperties.length,
+          itemCount: _filteredProperties.length + (_isLoadingMore ? 1 : 0),
           itemBuilder: (context, index) {
-            final property = _filteredProperties[index];
-            return _buildPropertyCard(property);
+            if (index < _filteredProperties.length) {
+              final property = _filteredProperties[index];
+              return _buildPropertyCard(property);
+            } else {
+              return const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              );
+            }
           },
         ),
       );
     } else {
       return ListView.builder(
+        controller: _scrollController,
         padding: EdgeInsets.all(horizontalPadding),
-        itemCount: _filteredProperties.length,
+        itemCount: _filteredProperties.length + (_isLoadingMore ? 1 : 0),
         itemBuilder: (context, index) {
-          final property = _filteredProperties[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: _buildPropertyCard(property),
-          );
+          if (index < _filteredProperties.length) {
+            final property = _filteredProperties[index];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: _buildPropertyCard(property),
+            );
+          } else {
+            return const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+            );
+          }
         },
       );
     }
@@ -907,17 +1003,9 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                     color: Colors.grey[300],
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                   ),
-                  child: property['imagePath'] != null && property['imagePath'].isNotEmpty
-                      ? ClipRRect(
+                  child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                    child: Image.file(
-                      File(property['imagePath']),
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                    ),
-                  )
-                      : const Center(
-                    child: Icon(Icons.home, size: 50, color: Colors.grey),
+                    child: _buildPropertyImage(property['imagePath']),
                   ),
                 ),
                 if (isSelected)
@@ -958,25 +1046,28 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                               fontSize: isMobile ? 16 : 18,
                               fontWeight: FontWeight.bold,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            property['houseType'] ?? 'Property',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: isMobile ? 12 : 14,
+                        if (property['isHighFloor'] == true)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'High Floor',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isMobile ? 10 : 12,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -995,6 +1086,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                               color: Colors.white.withOpacity(0.8),
                               fontSize: isMobile ? 12 : 14,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -1014,7 +1107,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            if (property['pricePerM2'] != null)
+                            if (property['pricePerM2'] != null && property['pricePerM2'] > 0)
                               Text(
                                 '\$${property['pricePerM2']} per m²',
                                 style: TextStyle(
@@ -1054,6 +1147,41 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
+  Widget _buildPropertyImage(String? imagePath) {
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 50, color: Colors.grey),
+        ),
+      );
+    }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildPropertyFeature(IconData icon, String text) {
     return Column(
       children: [
@@ -1062,7 +1190,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           color: Colors.white.withOpacity(0.8),
           size: isMobile ? 14 : 16,
         ),
-        const SizedBox(width: 4),
+        const SizedBox(height: 4),
         Text(
           text,
           style: TextStyle(

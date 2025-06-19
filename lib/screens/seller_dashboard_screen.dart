@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
 import 'viewing_requests_screen.dart';
+import 'user_profile_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 import 'login_screen.dart';
@@ -36,24 +37,39 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
         headers: ApiConfig.headers,
       );
 
+      print('Response status: ${response.statusCode}'); // Debug
+      print('Response body: ${response.body}'); // Debug
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final allProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+
+        // Handle different response formats
+        List<Map<String, dynamic>> allProperties;
+        if (data is List) {
+          allProperties = List<Map<String, dynamic>>.from(data);
+        } else {
+          allProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        }
 
         // Filter properties by current user
         final currentUserId = UserSession.getCurrentUserId();
+        print('Current user ID: $currentUserId'); // Debug
+
         setState(() {
           _properties = allProperties
               .where((property) => property['userId'] == currentUserId)
               .toList();
           _errorMessage = null;
         });
+
+        print('Filtered properties count: ${_properties.length}'); // Debug
       } else {
         setState(() {
-          _errorMessage = 'Failed to load properties';
+          _errorMessage = 'Failed to load properties (${response.statusCode})';
         });
       }
     } catch (e) {
+      print('Error loading properties: $e'); // Debug
       setState(() {
         _errorMessage = 'Network error: $e';
       });
@@ -224,7 +240,6 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
     return Colors.grey;
   }
 
-  // FIX: Add method to build property image widget
   Widget _buildPropertyImage(String? imagePath) {
     if (!ApiConfig.isValidImagePath(imagePath)) {
       return Container(
@@ -369,6 +384,18 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
               );
             },
             tooltip: 'All Viewing Requests',
+          ),
+          IconButton(
+            icon: const Icon(Icons.person, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const UserProfileScreen(),
+                ),
+              );
+            },
+            tooltip: 'Profile',
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -525,7 +552,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(20),
                           ),
-                          child: _buildPropertyImage(property['imagePath']), // FIX: Use network image
+                          child: _buildPropertyImage(property['imagePath']),
                         ),
                       ),
                       // Status badge
@@ -637,7 +664,7 @@ class _SellerDashboardScreenState extends State<SellerDashboardScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                if (property['pricePerM2'] != null)
+                                if (property['pricePerM2'] != null && property['pricePerM2'] > 0)
                                   Text(
                                     '\$${property['pricePerM2']} per m²',
                                     style: TextStyle(

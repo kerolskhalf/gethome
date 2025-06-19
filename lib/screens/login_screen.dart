@@ -30,6 +30,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // FIX: Convert backend integer role to string role
+  String _convertRoleToString(dynamic backendRole) {
+    if (backendRole is int) {
+      switch (backendRole) {
+        case 0:
+          return 'seller'; // Backend Seller enum = 0
+        case 1:
+          return 'buyer';  // Backend Buyer enum = 1
+        default:
+          return 'buyer';  // Default fallback
+      }
+    } else if (backendRole is String) {
+      // Handle case where backend might send string
+      final roleStr = backendRole.toLowerCase().trim();
+      if (roleStr == '0' || roleStr == 'seller') return 'seller';
+      if (roleStr == '1' || roleStr == 'buyer') return 'buyer';
+      return 'buyer'; // Default fallback
+    }
+    return 'buyer'; // Default fallback
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -66,18 +87,16 @@ class _LoginScreenState extends State<LoginScreen> {
         print('Role field: ${data['role']}');
         print('Role type: ${data['role'].runtimeType}');
 
-        String userRole = 'buyer'; // default
-        if (data['role'] != null) {
-          userRole = data['role'].toString().toLowerCase().trim();
-          print('Processed role: "$userRole"');
-        }
+        // FIX: Properly convert backend role to string
+        String userRole = _convertRoleToString(data['role']);
+        print('Converted role: "$userRole"');
 
         // Store user data using the backend response format
         final userData = {
           'userId': data['userId'] ?? data['id'] ?? 0,
           'fullName': data['fullName'] ?? data['name'] ?? 'User',
           'email': _emailController.text.trim(),
-          'role': userRole, // Use normalized role
+          'role': userRole, // Use properly converted role
           'phoneNumber': data['phoneNumber'],
         };
 
@@ -110,25 +129,25 @@ class _LoginScreenState extends State<LoginScreen> {
           print('Is seller check: ${storedRole == 'seller'}');
 
           // FIX: Explicit navigation logic with debugging
-          if (storedRole == 'buyer') {
-            print('NAVIGATING TO BUYER DASHBOARD');
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const BuyerDashboardScreen(),
-              ),
-            );
-          } else if (storedRole == 'seller') {
-            print('NAVIGATING TO SELLER DASHBOARD');
+          if (storedRole == 'seller') {
+            print('✅ NAVIGATING TO SELLER DASHBOARD');
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (context) => const SellerDashboardScreen(),
               ),
             );
+          } else if (storedRole == 'buyer') {
+            print('✅ NAVIGATING TO BUYER DASHBOARD');
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BuyerDashboardScreen(),
+              ),
+            );
           } else {
-            // Default to buyer if role is unclear
-            print('UNKNOWN ROLE: "$storedRole", DEFAULTING TO BUYER DASHBOARD');
+            // This should not happen with proper role conversion
+            print('⚠️ UNKNOWN ROLE: "$storedRole", DEFAULTING TO BUYER DASHBOARD');
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(

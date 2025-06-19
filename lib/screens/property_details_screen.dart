@@ -27,16 +27,26 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     _checkIfFavorite();
   }
 
-  // FIX: Add method to check if property is in favorites
   Future<void> _checkIfFavorite() async {
-    // This would typically check the favorites API
-    // For now, we'll keep it simple
-    setState(() {
-      _isSaved = false; // Default state
-    });
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())),
+        headers: ApiConfig.headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final favorites = List<Map<String, dynamic>>.from(data['data'] ?? []);
+
+        setState(() {
+          _isSaved = favorites.any((fav) => fav['propertyId'] == widget.property['id']);
+        });
+      }
+    } catch (e) {
+      print('Error checking favorite status: $e');
+    }
   }
 
-  // FIX: Add method to toggle favorite status
   Future<void> _toggleFavorite() async {
     if (_isTogglingFavorite) return;
 
@@ -294,7 +304,6 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     return Colors.grey;
   }
 
-  // FIX: Add method to build property image widget with network image
   Widget _buildPropertyImage() {
     final imagePath = widget.property['imagePath'];
 
@@ -360,7 +369,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 expandedHeight: 300,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  background: _buildPropertyImage(), // FIX: Use network image
+                  background: _buildPropertyImage(),
                 ),
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back),
@@ -378,7 +387,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                       ),
                     )
                         : Icon(_isSaved ? Icons.favorite : Icons.favorite_border),
-                    onPressed: _isTogglingFavorite ? null : _toggleFavorite, // FIX: Use proper toggle function
+                    onPressed: _isTogglingFavorite ? null : _toggleFavorite,
                   ),
                 ],
               ),
@@ -448,7 +457,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              if (widget.property['pricePerM2'] != null)
+                              if (widget.property['pricePerM2'] != null && widget.property['pricePerM2'] > 0)
                                 Text(
                                   '\$${widget.property['pricePerM2']} per m²',
                                   style: TextStyle(

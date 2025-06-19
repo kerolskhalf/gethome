@@ -21,8 +21,9 @@ dependencies:
   photo_view: ^0.14.0
   carousel_slider: ^4.2.1
 
-  # Maps and location (removed problematic location package)
-  google_maps_flutter: ^2.2.8
+  # Maps and location - REPLACED Google Maps with Flutter Map
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
   geolocator: ^9.0.2
   permission_handler: ^11.0.1
   geocoding: ^2.1.0
@@ -42,4 +43,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-

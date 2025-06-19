@@ -1,6 +1,6 @@
-//property_comparison_screen.dart
+// lib/screens/property_comparison_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:io';
+import '../utils/api_config.dart';
 
 class PropertyComparisonScreen extends StatelessWidget {
   final List<Map<String, dynamic>> selectedProperties;
@@ -99,19 +99,45 @@ class PropertyComparisonScreen extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
-              child: property['imagePath'] != null
-                  ? Image.file(
-                File(property['imagePath']),
-                fit: BoxFit.cover,
-              )
-                  : Container(
-                color: Colors.grey[300],
-                child: const Icon(Icons.home, size: 100),
-              ),
+              child: _buildPropertyImage(property['imagePath']),
             ),
           );
         },
       ),
+    );
+  }
+
+  Widget _buildPropertyImage(String? imagePath) {
+    if (!ApiConfig.isValidImagePath(imagePath)) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 100, color: Colors.grey),
+        ),
+      );
+    }
+
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.broken_image, size: 100, color: Colors.grey),
+          ),
+        );
+      },
     );
   }
 
@@ -126,20 +152,20 @@ class PropertyComparisonScreen extends StatelessWidget {
         children: [
           _buildComparisonRow(
             label: 'Price',
-            values: selectedProperties.map((p) => '\$${p['price']}').toList(),
+            values: selectedProperties.map((p) => '\$${p['price'] ?? 0}').toList(),
             isHeader: true,
           ),
           _buildComparisonRow(
             label: 'Size',
-            values: selectedProperties.map((p) => '${p['size']} m²').toList(),
+            values: selectedProperties.map((p) => '${p['size'] ?? 0} m²').toList(),
           ),
           _buildComparisonRow(
             label: 'Bedrooms',
-            values: selectedProperties.map((p) => p['bedrooms'].toString()).toList(),
+            values: selectedProperties.map((p) => (p['bedrooms'] ?? 0).toString()).toList(),
           ),
           _buildComparisonRow(
             label: 'Bathrooms',
-            values: selectedProperties.map((p) => p['bathrooms'].toString()).toList(),
+            values: selectedProperties.map((p) => (p['bathrooms'] ?? 0).toString()).toList(),
           ),
         ],
       ),
@@ -157,28 +183,46 @@ class PropertyComparisonScreen extends StatelessWidget {
         children: [
           _buildComparisonRow(
             label: 'Type',
-            values: selectedProperties.map((p) => p['propertyType'].toString()).toList(),
+            values: selectedProperties.map((p) => (p['houseType'] ?? 'N/A').toString()).toList(),
           ),
           _buildComparisonRow(
-            label: 'Address',
-            values: selectedProperties.map((p) => p['address'].toString()).toList(),
+            label: 'Location',
+            values: selectedProperties.map((p) => '${p['city'] ?? ''}, ${p['region'] ?? ''}').toList(),
           ),
           _buildComparisonRow(
             label: 'Price per m²',
             values: selectedProperties.map((p) {
-              final price = p['price'] as int;
-              final size = p['size'] as int;
-              return '\$${(price / size).toStringAsFixed(2)}';
+              final price = (p['price'] ?? 0) as num;
+              final size = (p['size'] ?? 1) as num;
+              if (size > 0) {
+                return '\$${(price / size).toStringAsFixed(2)}';
+              } else {
+                return 'N/A';
+              }
             }).toList(),
           ),
+          if (selectedProperties.any((p) => p['totalRooms'] != null && p['totalRooms'] > 0))
+            _buildComparisonRow(
+              label: 'Total Rooms',
+              values: selectedProperties.map((p) => (p['totalRooms'] ?? 0).toString()).toList(),
+            ),
           _buildComparisonRow(
-            label: 'Description',
-            values: selectedProperties.map((p) => p['description'].toString()).toList(),
-            isMultiLine: true,
+            label: 'High Floor',
+            values: selectedProperties.map((p) => (p['isHighFloor'] == true) ? 'Yes' : 'No').toList(),
+          ),
+          _buildComparisonRow(
+            label: 'Status',
+            values: selectedProperties.map((p) => _getStatusText(p['status'])).toList(),
           ),
         ],
       ),
     );
+  }
+
+  String _getStatusText(dynamic status) {
+    if (status == 0 || status == 'Available') return 'Available';
+    if (status == 1 || status == 'NotAvailable') return 'Not Available';
+    return 'Unknown';
   }
 
   Widget _buildComparisonRow({
@@ -222,6 +266,7 @@ class PropertyComparisonScreen extends StatelessWidget {
                       ),
                       maxLines: isMultiLine ? 5 : 1,
                       overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 );

@@ -1,6 +1,7 @@
 // lib/screens/map_screen.dart
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
@@ -25,8 +26,8 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   static const String API_BASE_URL = 'https://gethome.runasp.net';
 
-  GoogleMapController? _mapController;
-  Set<Marker> _markers = {};
+  final MapController _mapController = MapController();
+  List<Marker> _markers = [];
   LatLng? _selectedLocation;
   LatLng _currentPosition = const LatLng(30.0444, 31.2357); // Default to Cairo
   bool _isLoading = true;
@@ -111,7 +112,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _createMarkersFromProperties() {
-    final markers = <Marker>{};
+    final markers = <Marker>[];
 
     for (final property in _properties) {
       // Skip properties without coordinates
@@ -125,15 +126,30 @@ class _MapScreenState extends State<MapScreen> {
       );
 
       final marker = Marker(
-        markerId: MarkerId(property['id'].toString()),
-        position: position,
-        infoWindow: InfoWindow(
-          title: property['houseType'] ?? 'Property',
-          snippet: '\$${property['price']} - ${property['bedrooms']} beds',
+        point: position,
+        width: 40,
+        height: 40,
+        child: GestureDetector(
           onTap: () => _onMarkerTapped(property),
-        ),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          _getMarkerColor(property['houseType']),
+          child: Container(
+            decoration: BoxDecoration(
+              color: _getMarkerColor(property['houseType']),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.home,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
         ),
       );
 
@@ -145,18 +161,18 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  double _getMarkerColor(String? houseType) {
+  Color _getMarkerColor(String? houseType) {
     switch (houseType?.toLowerCase()) {
       case 'apartment':
-        return BitmapDescriptor.hueBlue;
+        return Colors.blue;
       case 'house':
-        return BitmapDescriptor.hueGreen;
+        return Colors.green;
       case 'villa':
-        return BitmapDescriptor.hueViolet;
+        return Colors.purple;
       case 'studio':
-        return BitmapDescriptor.hueOrange;
+        return Colors.orange;
       default:
-        return BitmapDescriptor.hueRed;
+        return Colors.red;
     }
   }
 
@@ -168,17 +184,36 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void _onMapTapped(LatLng position) {
+  void _onMapTapped(TapPosition tapPosition, LatLng point) {
     if (widget.isLocationPicker) {
       setState(() {
-        _selectedLocation = position;
-        _markers = {
+        _selectedLocation = point;
+        _markers = [
           Marker(
-            markerId: const MarkerId('selected_location'),
-            position: position,
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            point: point,
+            width: 40,
+            height: 40,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.location_on,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
           ),
-        };
+        ];
       });
     }
   }
@@ -213,21 +248,25 @@ class _MapScreenState extends State<MapScreen> {
               ),
             )
           else
-            GoogleMap(
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-              },
-              initialCameraPosition: CameraPosition(
-                target: _currentPosition,
-                zoom: 12.0,
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _currentPosition,
+                initialZoom: 12.0,
+                onTap: _onMapTapped,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
               ),
-              markers: _markers,
-              onTap: _onMapTapped,
-              myLocationEnabled: true,
-              myLocationButtonEnabled: false,
-              mapType: MapType.normal,
-              compassEnabled: true,
-              trafficEnabled: false,
+              children: [
+                // Tile Layer (OpenStreetMap)
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.gethome',
+                ),
+                // Markers Layer
+                MarkerLayer(markers: _markers),
+              ],
             ),
 
           // Header
@@ -590,11 +629,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _goToCurrentLocation() async {
-    if (_mapController != null) {
-      await _getCurrentLocation();
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLng(_currentPosition),
-      );
-    }
+    await _getCurrentLocation();
+    _mapController.move(_currentPosition, 14.0);
   }
 }
