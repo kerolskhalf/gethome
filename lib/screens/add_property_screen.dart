@@ -26,7 +26,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
   // Image handling (max 10 images)
   List<File> _selectedImages = [];
+  List<String> _existingImageUrls = []; // For existing property images
   File? _coverImage;
+  String? _existingCoverImageUrl; // For existing cover image
   static const int maxImages = 10;
 
   // Form controllers
@@ -44,7 +46,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   String _propertyType = 'Apartment';
   int _bedrooms = 1;
   int _bathrooms = 1;
-  int _totalRooms = 0; // Changed to 0 to match DTO range (0-50)
+  int _totalRooms = 0;
   bool _isHighFloor = false;
   bool _isAvailable = true;
   bool _isFurnished = false;
@@ -62,6 +64,10 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   // Loading states
   bool _isLoading = false;
   bool _isSubmitting = false;
+
+  // Change detection for updates
+  bool _hasChanges = false;
+  Map<String, dynamic>? _originalPropertyData;
 
   @override
   void initState() {
@@ -84,8 +90,136 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       return;
     }
 
+    // Store original property data for comparison
+    if (widget.propertyToEdit != null) {
+      _originalPropertyData = Map<String, dynamic>.from(widget.propertyToEdit!);
+    }
+
     _initializeControllers();
     _calculatePricePerM2();
+
+    // Add listeners to detect changes
+    _addChangeListeners();
+  }
+
+  void _addChangeListeners() {
+    _sizeController.addListener(_onFormDataChanged);
+    _bedroomsController.addListener(_onFormDataChanged);
+    _bathroomsController.addListener(_onFormDataChanged);
+    _totalRoomsController.addListener(_onFormDataChanged);
+    _regionController.addListener(_onFormDataChanged);
+    _cityController.addListener(_onFormDataChanged);
+    _priceController.addListener(_onFormDataChanged);
+    _floorController.addListener(_onFormDataChanged);
+  }
+
+  void _onFormDataChanged() {
+    if (!mounted) return;
+
+    bool hasChanges = _detectChanges();
+    if (hasChanges != _hasChanges) {
+      setState(() {
+        _hasChanges = hasChanges;
+      });
+    }
+  }
+
+  bool _detectChanges() {
+    if (widget.propertyToEdit == null || _originalPropertyData == null) {
+      return true; // New property, always has changes
+    }
+
+    // Compare form data with original data
+    if (_sizeController.text.trim() != (_originalPropertyData!['size']?.toString() ?? '')) return true;
+    if (_bedroomsController.text.trim() != (_originalPropertyData!['bedrooms']?.toString() ?? '')) return true;
+    if (_bathroomsController.text.trim() != (_originalPropertyData!['bathrooms']?.toString() ?? '')) return true;
+    if (_totalRoomsController.text.trim() != (_originalPropertyData!['totalRooms']?.toString() ?? '')) return true;
+    if (_regionController.text.trim() != (_originalPropertyData!['region']?.toString() ?? '')) return true;
+    if (_cityController.text.trim() != (_originalPropertyData!['city']?.toString() ?? '')) return true;
+    if (_priceController.text.trim() != (_originalPropertyData!['price']?.toString() ?? '')) return true;
+    if (_floorController.text.trim() != (_originalPropertyData!['floor']?.toString() ?? '')) return true;
+
+    // Check dropdown and boolean values
+    if (_propertyType != (_originalPropertyData!['houseType'] ?? 'Apartment')) return true;
+    if (_bedrooms != (_originalPropertyData!['bedrooms'] ?? 1)) return true;
+    if (_bathrooms != (_originalPropertyData!['bathrooms'] ?? 1)) return true;
+    if (_totalRooms != (_originalPropertyData!['totalRooms'] ?? 0)) return true;
+    if (_isHighFloor != (_originalPropertyData!['isHighFloor'] ?? false)) return true;
+    if (_isFurnished != (_originalPropertyData!['isFurnished'] ?? false)) return true;
+    if (_floor != (_originalPropertyData!['floor'] ?? 1)) return true;
+
+    // Check status (Available = 0, Not Available = 1)
+    bool originalAvailable = _originalPropertyData!['status'] == 0;
+    if (_isAvailable != originalAvailable) return true;
+
+    // Check if new images were added
+    if (_selectedImages.isNotEmpty) return true;
+
+    // Check if existing images were removed
+    final originalImageCount = _getOriginalImageCount();
+    final currentExistingCount = _existingImageUrls.length;
+    if (currentExistingCount != originalImageCount) return true;
+
+    // Check if cover image changed
+    final originalCoverPath = widget.propertyToEdit!['imagePath'];
+    final originalCoverUrl = ApiConfig.isValidImagePath(originalCoverPath)
+        ? ApiConfig.getImageUrl(originalCoverPath)
+        : null;
+    if (_existingCoverImageUrl != originalCoverUrl) return true;
+    if (_coverImage != null) return true; // New cover image selected
+
+    // Check location changes
+    if (_selectedLocation != null) {
+      double? originalLat = _originalPropertyData!['latitude']?.toDouble();
+      double? originalLng = _originalPropertyData!['longitude']?.toDouble();
+
+      if (originalLat == null || originalLng == null) return true;
+
+      if ((_selectedLocation!.latitude - originalLat).abs() > 0.0001 ||
+          (_selectedLocation!.longitude - originalLng).abs() > 0.0001) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  int _getOriginalImageCount() {
+    if (widget.propertyToEdit == null) return 0;
+
+    int count = 0;
+
+    // Count cover image
+    if (ApiConfig.isValidImagePath(widget.propertyToEdit!['imagePath'])) {
+      count++;
+    }
+
+    // Count additional images
+    final images = widget.propertyToEdit!['images'];
+    if (images != null && images is List) {
+      count += images.length;
+    }
+
+    return count;
+  }
+
+  Map<String, dynamic> _getCurrentFormData() {
+    return {
+      'houseType': _propertyType,
+      'size': double.tryParse(_sizeController.text.trim()) ?? 0,
+      'bedrooms': _bedrooms,
+      'bathrooms': _bathrooms,
+      'totalRooms': _totalRooms,
+      'region': _regionController.text.trim(),
+      'city': _cityController.text.trim(),
+      'price': double.tryParse(_priceController.text.trim()) ?? 0,
+      'floor': _floor,
+      'isHighFloor': _isHighFloor,
+      'isFurnished': _isFurnished,
+      'status': _isAvailable ? 0 : 1,
+      'latitude': _selectedLocation?.latitude,
+      'longitude': _selectedLocation?.longitude,
+    };
   }
 
   void _initializeControllers() {
@@ -128,6 +262,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       _isFurnished = widget.propertyToEdit!['isFurnished'] ?? false;
       _floor = widget.propertyToEdit!['floor'] ?? 1;
 
+      // Load existing images
+      _loadExistingImages();
+
       // Set location if available
       if (widget.propertyToEdit!['latitude'] != null && widget.propertyToEdit!['longitude'] != null) {
         _selectedLocation = LatLng(
@@ -143,8 +280,83 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     _sizeController.addListener(_calculatePricePerM2);
   }
 
+  void _loadExistingImages() {
+    if (widget.propertyToEdit == null) return;
+
+    // Debug: Print the entire property data to understand structure
+    print('Property data for image loading: ${widget.propertyToEdit}');
+
+    // Load cover image - try different possible field names
+    String? coverImagePath = widget.propertyToEdit!['imagePath'] ??
+        widget.propertyToEdit!['ImagePath'] ??
+        widget.propertyToEdit!['coverImage'];
+
+    if (ApiConfig.isValidImagePath(coverImagePath)) {
+      _existingCoverImageUrl = '${ApiConfig.BASE_URL}/ProductsImages/$coverImagePath';
+      print('Loading cover image: $_existingCoverImageUrl'); // Debug log
+    } else {
+      print('No valid cover image found. ImagePath value: $coverImagePath');
+    }
+
+    // Load additional images - try different possible field structures
+    var images = widget.propertyToEdit!['images'] ??
+        widget.propertyToEdit!['Images'] ??
+        widget.propertyToEdit!['propertyImages'];
+
+    if (images != null) {
+      print('Found images data: $images (type: ${images.runtimeType})');
+
+      if (images is List) {
+        for (var image in images) {
+          String? imagePath;
+
+          if (image is Map) {
+            imagePath = image['imagePath'] ??
+                image['ImagePath'] ??
+                image['path'];
+          } else if (image is String) {
+            imagePath = image;
+          }
+
+          if (imagePath != null && ApiConfig.isValidImagePath(imagePath)) {
+            final imageUrl = '${ApiConfig.BASE_URL}/ProductsImages/$imagePath';
+            if (!_existingImageUrls.contains(imageUrl)) {
+              _existingImageUrls.add(imageUrl);
+              print('Loading additional image: $imageUrl'); // Debug log
+            }
+          }
+        }
+      }
+    } else {
+      print('No additional images found in property data');
+    }
+
+    print('Total existing images loaded: ${_existingImageUrls.length + (_existingCoverImageUrl != null ? 1 : 0)}');
+  }
+
+  // Method to refresh images if loading fails
+  void _retryImageLoading() {
+    setState(() {
+      // Clear and reload existing images
+      _existingImageUrls.clear();
+      _existingCoverImageUrl = null;
+      _loadExistingImages();
+    });
+    _showMessage('Retrying image loading...', isError: false);
+  }
+
   @override
   void dispose() {
+    // Remove change listeners
+    _sizeController.removeListener(_onFormDataChanged);
+    _bedroomsController.removeListener(_onFormDataChanged);
+    _bathroomsController.removeListener(_onFormDataChanged);
+    _totalRoomsController.removeListener(_onFormDataChanged);
+    _regionController.removeListener(_onFormDataChanged);
+    _cityController.removeListener(_onFormDataChanged);
+    _priceController.removeListener(_onFormDataChanged);
+    _floorController.removeListener(_onFormDataChanged);
+
     _priceController.removeListener(_calculatePricePerM2);
     _sizeController.removeListener(_calculatePricePerM2);
     _sizeController.dispose();
@@ -178,7 +390,8 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
   // Image handling methods
   Future<void> _pickImagesFromGallery() async {
-    if (_selectedImages.length >= maxImages) {
+    final totalImages = _selectedImages.length + _existingImageUrls.length;
+    if (totalImages >= maxImages) {
       _showMessage('Maximum $maxImages images allowed', isError: true);
       return;
     }
@@ -190,7 +403,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         imageQuality: 85,
       );
 
-      final remainingSlots = maxImages - _selectedImages.length;
+      final remainingSlots = maxImages - totalImages;
       final filesToAdd = pickedFiles.take(remainingSlots);
 
       for (XFile file in filesToAdd) {
@@ -199,7 +412,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           setState(() {
             _selectedImages.add(imageFile);
             // Set first image as cover if no cover is set
-            if (_coverImage == null && _selectedImages.isNotEmpty) {
+            if (_coverImage == null && _existingCoverImageUrl == null && _selectedImages.isNotEmpty) {
               _coverImage = _selectedImages.first;
             }
           });
@@ -218,7 +431,8 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   Future<void> _takePictureFromCamera() async {
-    if (_selectedImages.length >= maxImages) {
+    final totalImages = _selectedImages.length + _existingImageUrls.length;
+    if (totalImages >= maxImages) {
       _showMessage('Maximum $maxImages images allowed', isError: true);
       return;
     }
@@ -237,7 +451,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           setState(() {
             _selectedImages.add(imageFile);
             // Set as cover if no cover is set
-            if (_coverImage == null) {
+            if (_coverImage == null && _existingCoverImageUrl == null) {
               _coverImage = imageFile;
             }
           });
@@ -252,8 +466,40 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     setState(() {
       _selectedImages.remove(image);
       if (_coverImage == image) {
-        _coverImage = _selectedImages.isNotEmpty ? _selectedImages.first : null;
+        // Set new cover image priority: existing cover > new images > existing images
+        if (_existingCoverImageUrl != null) {
+          // Keep existing cover
+        } else if (_selectedImages.isNotEmpty) {
+          _coverImage = _selectedImages.first;
+        } else if (_existingImageUrls.isNotEmpty) {
+          _existingCoverImageUrl = _existingImageUrls.first;
+        } else {
+          _coverImage = null;
+          _existingCoverImageUrl = null;
+        }
       }
+    });
+  }
+
+  void _removeExistingImage(String imageUrl) {
+    setState(() {
+      _existingImageUrls.remove(imageUrl);
+      if (_existingCoverImageUrl == imageUrl) {
+        _existingCoverImageUrl = null;
+        // Set a new cover image if available
+        if (_existingImageUrls.isNotEmpty) {
+          _existingCoverImageUrl = _existingImageUrls.first;
+        } else if (_selectedImages.isNotEmpty) {
+          _coverImage = _selectedImages.first;
+        }
+      }
+    });
+  }
+
+  void _setExistingImageAsCover(String imageUrl) {
+    setState(() {
+      _existingCoverImageUrl = imageUrl;
+      _coverImage = null; // Clear local cover image
     });
   }
 
@@ -389,38 +635,77 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     return true;
   }
 
-  // Form submission - Fixed to match API exactly
+  // Form submission
   Future<void> _submitForm() async {
     if (_currentPage < 2) {
       _nextPage();
       return;
     }
 
+    // For editing, check if there are changes
+    if (widget.propertyToEdit != null) {
+      if (!_hasChanges) {
+        _showMessage('No changes detected', isError: true);
+        return;
+      }
+      await _showUpdateConfirmation();
+    } else {
+      // For new properties, proceed directly
+      if (!_validateFormForSubmission()) return;
+      await _performAddProperty();
+    }
+  }
+
+  Future<void> _showUpdateConfirmation() async {
+    final bool? shouldUpdate = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Update Property',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to save these changes to your property?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Update',
+              style: TextStyle(color: Colors.green),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldUpdate == true) {
+      await _performUpdate();
+    }
+  }
+
+  Future<void> _performUpdate() async {
     if (!_validateFormForSubmission()) return;
 
     setState(() => _isSubmitting = true);
 
     try {
-      Uri uri;
-      String httpMethod;
+      final propertyId = widget.propertyToEdit!['id'];
+      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/properties/update/$propertyId');
 
-      if (widget.propertyToEdit != null) {
-        final propertyId = widget.propertyToEdit!['id'];
-        if (propertyId == null) {
-          _showMessage('Error: Property ID is missing', isError: true);
-          setState(() => _isSubmitting = false);
-          return;
-        }
-        uri = Uri.parse('${ApiConfig.BASE_URL}/api/properties/update/$propertyId');
-        httpMethod = 'PUT';
-      } else {
-        uri = Uri.parse('${ApiConfig.BASE_URL}/api/properties/add');
-        httpMethod = 'POST';
-      }
+      final request = http.MultipartRequest('PUT', uri);
 
-      final request = http.MultipartRequest(httpMethod, uri);
-
-      // Add form fields - EXACTLY matching the API structure
+      // Add form fields
       final formFields = _prepareFormFields();
       if (formFields.isEmpty) {
         _showMessage('Error preparing form data', isError: true);
@@ -430,7 +715,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
       request.fields.addAll(formFields);
 
-      // Add cover image (required)
+      // Add cover image if new one is selected
       if (_coverImage != null) {
         try {
           request.files.add(await http.MultipartFile.fromPath(
@@ -444,17 +729,16 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         }
       }
 
-      // Add additional images
+      // Add additional images if any
       for (int i = 0; i < _selectedImages.length; i++) {
         if (_selectedImages[i] != _coverImage) {
           try {
             request.files.add(await http.MultipartFile.fromPath(
-              'Images',
+              'ImagePaths',
               _selectedImages[i].path,
             ));
           } catch (e) {
             print('Error adding image $i: $e');
-            // Continue with other images
           }
         }
       }
@@ -462,27 +746,31 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       // Set headers
       request.headers['accept'] = '*/*';
 
-      print('Sending request to: ${uri.toString()}');
+      print('Updating property: ${uri.toString()}');
       print('Form fields: ${request.fields}');
-      print('Files: ${request.files.length}');
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      print('Update response status: ${response.statusCode}');
+      print('Update response body: ${response.body}');
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
-        _showMessage(responseData['message'] ??
-            (widget.propertyToEdit != null
-                ? 'Property updated successfully!'
-                : 'Property added successfully!'));
+        _showMessage('Property updated successfully!');
+
+        // Update the original data to reflect current state
+        _originalPropertyData = _getCurrentFormData();
+        setState(() {
+          _hasChanges = false;
+        });
 
         await Future.delayed(const Duration(seconds: 1));
-        if (mounted) Navigator.pop(context, true);
+        if (mounted) {
+          Navigator.pop(context, true); // Return true to indicate successful update
+        }
       } else {
-        String errorMessage = 'Failed to save property';
+        String errorMessage = 'Failed to update property';
         try {
           final errorData = json.decode(response.body);
           errorMessage = errorData['message'] ?? errorMessage;
@@ -493,7 +781,69 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
       }
     } catch (e) {
       _showMessage('Network error: $e', isError: true);
-      print('Network error: $e');
+      print('Update error: $e');
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _performAddProperty() async {
+    setState(() => _isSubmitting = true);
+
+    try {
+      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/properties/add');
+      final request = http.MultipartRequest('POST', uri);
+
+      final formFields = _prepareFormFields();
+      if (formFields.isEmpty) {
+        _showMessage('Error preparing form data', isError: true);
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
+      request.fields.addAll(formFields);
+
+      // Add cover image (required for new properties)
+      if (_coverImage != null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'CoverImage',
+          _coverImage!.path,
+        ));
+      }
+
+      // Add additional images
+      for (int i = 0; i < _selectedImages.length; i++) {
+        if (_selectedImages[i] != _coverImage) {
+          request.files.add(await http.MultipartFile.fromPath(
+            'Images',
+            _selectedImages[i].path,
+          ));
+        }
+      }
+
+      request.headers['accept'] = '*/*';
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = json.decode(response.body);
+        _showMessage('Property added successfully!');
+
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) Navigator.pop(context, true);
+      } else {
+        String errorMessage = 'Failed to add property';
+        try {
+          final errorData = json.decode(response.body);
+          errorMessage = errorData['message'] ?? errorMessage;
+        } catch (e) {
+          errorMessage = 'Server error. Status: ${response.statusCode}';
+        }
+        _showMessage(errorMessage, isError: true);
+      }
+    } catch (e) {
+      _showMessage('Network error: $e', isError: true);
     } finally {
       setState(() => _isSubmitting = false);
     }
@@ -546,12 +896,14 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   bool _validateFormForSubmission() {
-    if (_selectedImages.isEmpty) {
+    final totalImages = _selectedImages.length + _existingImageUrls.length;
+    if (totalImages == 0 && widget.propertyToEdit == null) {
       _showMessage('Please add at least one property image', isError: true);
       return false;
     }
 
-    if (_coverImage == null) {
+    final hasCoverImage = _coverImage != null || _existingCoverImageUrl != null;
+    if (!hasCoverImage && widget.propertyToEdit == null) {
       _showMessage('Please select a cover image', isError: true);
       return false;
     }
@@ -599,7 +951,8 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
   }
 
   void _nextPage() {
-    if (_currentPage == 0 && _selectedImages.isEmpty) {
+    final totalImages = _selectedImages.length + _existingImageUrls.length;
+    if (_currentPage == 0 && totalImages == 0 && widget.propertyToEdit == null) {
       _showMessage('Please add at least one image before continuing', isError: true);
       return;
     }
@@ -727,6 +1080,14 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
               ),
             ),
           ),
+          // Add retry button for edit mode if images fail to load
+          if (widget.propertyToEdit != null) ...[
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _retryImageLoading,
+              tooltip: 'Retry loading images',
+            ),
+          ],
         ],
       ),
     );
@@ -756,6 +1117,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
 
   // Page 1: Image Upload
   Widget _buildImageUploadPage() {
+    final totalImages = _selectedImages.length + _existingImageUrls.length;
+    final hasImages = totalImages > 0;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -771,7 +1135,9 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Add up to $maxImages high-quality images of your property *',
+            widget.propertyToEdit != null
+                ? 'Add new images or keep existing ones (max $maxImages total)'
+                : 'Add up to $maxImages high-quality images of your property *',
             style: TextStyle(
               color: Colors.white.withOpacity(0.7),
               fontSize: 14,
@@ -780,7 +1146,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           const SizedBox(height: 20),
 
           // Image preview grid
-          if (_selectedImages.isNotEmpty) ...[
+          if (hasImages) ...[
             SizedBox(
               height: 300,
               child: GridView.builder(
@@ -789,97 +1155,24 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
                 ),
-                itemCount: _selectedImages.length,
+                itemCount: totalImages,
                 itemBuilder: (context, index) {
-                  final image = _selectedImages[index];
-                  final isCover = image == _coverImage;
+                  final bool isExistingImage = index < _existingImageUrls.length;
 
-                  return Stack(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(
-                            color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
-                            width: isCover ? 3 : 1,
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: Image.file(
-                            image,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: double.infinity,
-                          ),
-                        ),
-                      ),
+                  if (isExistingImage) {
+                    // Display existing image
+                    final imageUrl = _existingImageUrls[index];
+                    final isCover = _existingCoverImageUrl == imageUrl;
 
-                      // Cover badge
-                      if (isCover)
-                        Positioned(
-                          top: 8,
-                          left: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.blue,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'Cover',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
+                    return _buildExistingImageCard(imageUrl, isCover);
+                  } else {
+                    // Display new image
+                    final imageIndex = index - _existingImageUrls.length;
+                    final image = _selectedImages[imageIndex];
+                    final isCover = image == _coverImage;
 
-                      // Action buttons
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Column(
-                          children: [
-                            if (!isCover)
-                              GestureDetector(
-                                onTap: () => _setCoverImage(image),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withOpacity(0.8),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.star,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 4),
-                            GestureDetector(
-                              onTap: () => _removeImage(image),
-                              child: Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.8),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.close,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
+                    return _buildNewImageCard(image, isCover);
+                  }
                 },
               ),
             ),
@@ -894,7 +1187,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                   'Gallery',
                   Icons.photo_library,
                   _pickImagesFromGallery,
-                  enabled: _selectedImages.length < maxImages,
+                  enabled: totalImages < maxImages,
                 ),
               ),
               const SizedBox(width: 16),
@@ -903,13 +1196,13 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                   'Camera',
                   Icons.camera_alt,
                   _takePictureFromCamera,
-                  enabled: _selectedImages.length < maxImages,
+                  enabled: totalImages < maxImages,
                 ),
               ),
             ],
           ),
 
-          if (_selectedImages.length >= maxImages)
+          if (totalImages >= maxImages)
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Text(
@@ -923,6 +1216,225 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildExistingImageCard(String imageUrl, bool isCover) {
+    return Stack(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
+              width: isCover ? 3 : 1,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Container(
+                  color: Colors.grey[300],
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: Colors.blue,
+                      strokeWidth: 2,
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                print('Error loading image: $imageUrl - $error');
+                return Container(
+                  color: Colors.grey[300],
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.broken_image,
+                        size: 40,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Image not found',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 10,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+
+        // Cover badge
+        if (isCover)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Cover',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
+        // Action buttons
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Column(
+            children: [
+              if (!isCover)
+                GestureDetector(
+                  onTap: () => _setExistingImageAsCover(imageUrl),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.8),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.star,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 4),
+              GestureDetector(
+                onTap: () => _removeExistingImage(imageUrl),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNewImageCard(File image, bool isCover) {
+    return Stack(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
+              width: isCover ? 3 : 1,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: Image.file(
+              image,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+            ),
+          ),
+        ),
+
+        // Cover badge
+        if (isCover)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Cover',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
+        // Action buttons
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Column(
+            children: [
+              if (!isCover)
+                GestureDetector(
+                  onTap: () => _setCoverImage(image),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.8),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.star,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 4),
+              GestureDetector(
+                onTap: () => _removeImage(image),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1554,6 +2066,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     );
   }
 
+  // Enhanced bottom actions with change detection
   Widget _buildBottomActions() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1562,59 +2075,104 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.2))),
       ),
       child: SafeArea(
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (_currentPage > 0) ...[
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _previousPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey.withOpacity(0.3),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
+            // Show changes indicator for editing
+            if (widget.propertyToEdit != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _hasChanges
+                      ? Colors.orange.withOpacity(0.2)
+                      : Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _hasChanges ? Icons.edit : Icons.check_circle,
+                      color: _hasChanges ? Colors.orange : Colors.green,
+                      size: 16,
                     ),
-                  ),
-                  child: const Text(
-                    'Previous',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(width: 8),
+                    Text(
+                      _hasChanges ? 'Changes detected' : 'No changes',
+                      style: TextStyle(
+                        color: _hasChanges ? Colors.orange : Colors.green,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(height: 16),
             ],
-            Expanded(
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submitForm,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white.withOpacity(0.2),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
+
+            Row(
+              children: [
+                if (_currentPage > 0) ...[
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting ? null : _previousPage,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey.withOpacity(0.3),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: const Text(
+                        'Previous',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                ],
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isSubmitting ? null : () {
+                      // For editing, only allow if there are changes
+                      if (widget.propertyToEdit != null && !_hasChanges && _currentPage == 2) {
+                        _showMessage('No changes to save', isError: true);
+                        return;
+                      }
+                      _submitForm();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _getButtonColor(),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                        : Text(
+                      _getButtonText(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-                    : Text(
-                  _getButtonText(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+              ],
             ),
           ],
         ),
@@ -1622,11 +2180,25 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     );
   }
 
+  Color _getButtonColor() {
+    if (_currentPage < 2) {
+      return Colors.white.withOpacity(0.2);
+    }
+
+    if (widget.propertyToEdit != null) {
+      return _hasChanges
+          ? Colors.orange.withOpacity(0.3)
+          : Colors.grey.withOpacity(0.3);
+    }
+
+    return Colors.white.withOpacity(0.2);
+  }
+
   String _getButtonText() {
     if (_currentPage < 2) {
       return 'Next';
     } else if (widget.propertyToEdit != null) {
-      return 'Update Property';
+      return _hasChanges ? 'Update Property' : 'No Changes';
     } else {
       return 'Post Property';
     }

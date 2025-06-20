@@ -33,7 +33,7 @@ class ApiConfig {
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
-  // Image handling
+  // FIXED: Image handling with correct ProductsImages path
   static String getImageUrl(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty) {
       return '';
@@ -52,12 +52,16 @@ class ApiConfig {
       return cleanPath;
     }
 
-    // Handle images path prefix
+    // Remove any existing path prefixes
     if (cleanPath.startsWith('images/')) {
       cleanPath = cleanPath.substring(7);
     }
+    if (cleanPath.startsWith('ProductsImages/')) {
+      cleanPath = cleanPath.substring(15);
+    }
 
-    return '$BASE_URL/images/$cleanPath';
+    // Return the correct URL with ProductsImages path (matching backend)
+    return '$BASE_URL/ProductsImages/$cleanPath';
   }
 
   // Helper method to check if image URL is valid
