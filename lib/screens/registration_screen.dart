@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import './buyer_dashboard_screen.dart';
-import './seller_dashboard_screen.dart';
+import 'buyer_dashboard_screen.dart';
+import 'seller_dashboard_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 
@@ -122,7 +122,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => const EnhancedSellerDashboardScreen(),
+                builder: (context) => const SellerDashboardFocused(),
               ),
             );
           }

@@ -194,7 +194,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             MaterialPageRoute(
               builder: (context) => newRole.toLowerCase() == 'buyer'
                   ? const BuyerDashboardScreen()
-                  : const EnhancedSellerDashboardScreen(),
+                  : const SellerDashboardFocused(),
             ),
                 (route) => false,
           );

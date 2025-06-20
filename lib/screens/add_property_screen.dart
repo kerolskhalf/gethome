@@ -1115,7 +1115,7 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
     );
   }
 
-  // Page 1: Image Upload
+  // ENHANCED Image Upload Page with Scrollable Gallery
   Widget _buildImageUploadPage() {
     final totalImages = _selectedImages.length + _existingImageUrls.length;
     final hasImages = totalImages > 0;
@@ -1145,40 +1145,6 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Image preview grid
-          if (hasImages) ...[
-            SizedBox(
-              height: 300,
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                ),
-                itemCount: totalImages,
-                itemBuilder: (context, index) {
-                  final bool isExistingImage = index < _existingImageUrls.length;
-
-                  if (isExistingImage) {
-                    // Display existing image
-                    final imageUrl = _existingImageUrls[index];
-                    final isCover = _existingCoverImageUrl == imageUrl;
-
-                    return _buildExistingImageCard(imageUrl, isCover);
-                  } else {
-                    // Display new image
-                    final imageIndex = index - _existingImageUrls.length;
-                    final image = _selectedImages[imageIndex];
-                    final isCover = image == _coverImage;
-
-                    return _buildNewImageCard(image, isCover);
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-
           // Add image buttons
           Row(
             children: [
@@ -1201,37 +1167,429 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 20),
 
-          if (totalImages >= maxImages)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Text(
-                'Maximum $maxImages images reached',
-                style: TextStyle(
-                  color: Colors.orange.withOpacity(0.8),
-                  fontSize: 14,
-                ),
-                textAlign: TextAlign.center,
+          // Image counter and status
+          if (hasImages) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.photo_library,
+                    color: Colors.white.withOpacity(0.8),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$totalImages of $maxImages images selected',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (totalImages >= maxImages)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'LIMIT REACHED',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
+            const SizedBox(height: 20),
+
+            // Scrollable image gallery
+            Container(
+              height: 400, // Fixed height for the scrollable area
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.white.withOpacity(0.2)),
+              ),
+              child: Column(
+                children: [
+                  // Gallery header
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.collections,
+                          color: Colors.white.withOpacity(0.8),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Image Gallery',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (hasImages)
+                          GestureDetector(
+                            onTap: _showDeleteAllDialog,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.delete_sweep,
+                                    color: Colors.red,
+                                    size: 14,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Clear All',
+                                    style: TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Scrollable grid view
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: GridView.builder(
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: totalImages,
+                        itemBuilder: (context, index) {
+                          final bool isExistingImage = index < _existingImageUrls.length;
+
+                          if (isExistingImage) {
+                            // Display existing image
+                            final imageUrl = _existingImageUrls[index];
+                            final isCover = _existingCoverImageUrl == imageUrl;
+                            return _buildEnhancedExistingImageCard(imageUrl, isCover, index);
+                          } else {
+                            // Display new image
+                            final imageIndex = index - _existingImageUrls.length;
+                            final image = _selectedImages[imageIndex];
+                            final isCover = image == _coverImage;
+                            return _buildEnhancedNewImageCard(image, isCover, imageIndex);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            // Empty state
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.2),
+                  style: BorderStyle.solid,
+                ),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.photo_camera_outlined,
+                      size: 48,
+                      color: Colors.white.withOpacity(0.3),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No images selected',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tap Gallery or Camera to add images',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.3),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          if (totalImages >= maxImages) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Maximum $maxImages images reached. Delete some images to add new ones.',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildExistingImageCard(String imageUrl, bool isCover) {
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(
-              color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
-              width: isCover ? 3 : 1,
+  // Enhanced image card for new images with better UI
+  Widget _buildEnhancedNewImageCard(File image, bool isCover, int index) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
+          width: isCover ? 3 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Image
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.file(
+              image,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
+
+          // Gradient overlay for better text visibility
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.3),
+                  ],
+                  stops: const [0.6, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+          // Cover badge
+          if (isCover)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(
+                      Icons.star,
+                      color: Colors.white,
+                      size: 12,
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      'Cover',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Index number
+          Positioned(
+            bottom: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '#${index + 1}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
+          // Action buttons
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Column(
+              children: [
+                if (!isCover)
+                  GestureDetector(
+                    onTap: () => _setCoverImage(image),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.8),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.star_outline,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                  ),
+                if (!isCover) const SizedBox(height: 4),
+                GestureDetector(
+                  onTap: () => _showDeleteConfirmation(image, isNewImage: true),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.8),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Enhanced image card for existing images
+  Widget _buildEnhancedExistingImageCard(String imageUrl, bool isCover, int index) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
+          width: isCover ? 3 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Image
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
             child: Image.network(
               imageUrl,
               fit: BoxFit.cover,
@@ -1254,7 +1612,6 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                 );
               },
               errorBuilder: (context, error, stackTrace) {
-                print('Error loading image: $imageUrl - $error');
                 return Container(
                   color: Colors.grey[300],
                   child: Column(
@@ -1262,15 +1619,15 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
                     children: [
                       Icon(
                         Icons.broken_image,
-                        size: 40,
+                        size: 32,
                         color: Colors.grey[600],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Image not found',
+                        'Failed to load',
                         style: TextStyle(
                           color: Colors.grey[600],
-                          fontSize: 10,
+                          fontSize: 8,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -1280,161 +1637,229 @@ class _EnhancedAddPropertyScreenState extends State<EnhancedAddPropertyScreen> {
               },
             ),
           ),
-        ),
 
-        // Cover badge
-        if (isCover)
+          // Gradient overlay
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.3),
+                  ],
+                  stops: const [0.6, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+          // Cover badge
+          if (isCover)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(
+                      Icons.star,
+                      color: Colors.white,
+                      size: 12,
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      'Cover',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Index number
           Positioned(
-            top: 8,
+            bottom: 8,
             left: 8,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text(
-                'Cover',
-                style: TextStyle(
+              child: Text(
+                '#${index + 1}',
+                style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
           ),
 
-        // Action buttons
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Column(
-            children: [
-              if (!isCover)
+          // Action buttons
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Column(
+              children: [
+                if (!isCover)
+                  GestureDetector(
+                    onTap: () => _setExistingImageAsCover(imageUrl),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.8),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.star_outline,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                  ),
+                if (!isCover) const SizedBox(height: 4),
                 GestureDetector(
-                  onTap: () => _setExistingImageAsCover(imageUrl),
+                  onTap: () => _showDeleteConfirmation(imageUrl, isNewImage: false),
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.8),
+                      color: Colors.red.withOpacity(0.8),
                       shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: const Icon(
-                      Icons.star,
+                      Icons.close,
                       color: Colors.white,
-                      size: 16,
+                      size: 14,
                     ),
                   ),
                 ),
-              const SizedBox(height: 4),
-              GestureDetector(
-                onTap: () => _removeExistingImage(imageUrl),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.8),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.close,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildNewImageCard(File image, bool isCover) {
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(
-              color: isCover ? Colors.blue : Colors.white.withOpacity(0.2),
-              width: isCover ? 3 : 1,
-            ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: Image.file(
-              image,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-            ),
-          ),
+  // Delete confirmation dialog
+  void _showDeleteConfirmation(dynamic imageData, {required bool isNewImage}) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Delete Image',
+          style: TextStyle(color: Colors.white),
         ),
-
-        // Cover badge
-        if (isCover)
-          Positioned(
-            top: 8,
-            left: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'Cover',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+        content: const Text(
+          'Are you sure you want to delete this image?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
             ),
           ),
-
-        // Action buttons
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Column(
-            children: [
-              if (!isCover)
-                GestureDetector(
-                  onTap: () => _setCoverImage(image),
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.8),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.star,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 4),
-              GestureDetector(
-                onTap: () => _removeImage(image),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.8),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.close,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ),
-            ],
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (isNewImage) {
+                _removeImage(imageData as File);
+              } else {
+                _removeExistingImage(imageData as String);
+              }
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // Delete all images confirmation
+  void _showDeleteAllDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF234E70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Clear All Images',
+          style: TextStyle(color: Colors.white),
         ),
-      ],
+        content: const Text(
+          'Are you sure you want to remove all images? This action cannot be undone.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _selectedImages.clear();
+                _existingImageUrls.clear();
+                _coverImage = null;
+                _existingCoverImageUrl = null;
+              });
+              _showMessage('All images cleared', isError: false);
+            },
+            child: const Text(
+              'Clear All',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

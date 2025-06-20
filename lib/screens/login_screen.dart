@@ -4,8 +4,8 @@ import 'dart:ui';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import './registration_screen.dart';
-import './buyer_dashboard_screen.dart';
-import './seller_dashboard_screen.dart';
+import 'buyer_dashboard_screen.dart';
+import 'seller_dashboard_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 
@@ -134,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => const EnhancedSellerDashboardScreen(),
+                builder: (context) => const SellerDashboardFocused(),
               ),
             );
           } else if (storedRole == 'buyer') {

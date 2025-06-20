@@ -1,9 +1,9 @@
 // lib/screens/role_selection_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import '../utils/user_session.dart';
 import 'seller_dashboard_screen.dart';
 import 'buyer_dashboard_screen.dart';
-
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({Key? key}) : super(key: key);
@@ -13,43 +13,28 @@ class RoleSelectionScreen extends StatelessWidget {
     return Scaffold(
       body: Stack(
         children: [
-          // Professional gradient background
+          // Background gradient
           Container(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF1a237e),  // Deep blue
-                  const Color(0xFF234E70),  // Navy blue
-                  const Color(0xFF305F80),  // Medium blue
+                  Color(0xFF1a237e),
+                  Color(0xFF234E70),
+                  Color(0xFF305F80),
                 ],
-                stops: const [0.2, 0.6, 0.9],
+                stops: [0.2, 0.6, 0.9],
               ),
             ),
           ),
 
-          // Subtle overlay gradient
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white.withOpacity(0.1),
-                  Colors.white.withOpacity(0.05),
-                  Colors.white.withOpacity(0.0),
-                ],
-              ),
-            ),
-          ),
-
-          // Main content
           SafeArea(
             child: Column(
               children: [
                 const SizedBox(height: 40),
-                // Welcome text with glassmorphism
+
+                // Welcome header
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: ClipRRect(
@@ -67,27 +52,33 @@ class RoleSelectionScreen extends StatelessWidget {
                         ),
                         child: Column(
                           children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(
+                                Icons.home_work,
+                                size: 48,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
                             Text(
-                              'Choose Your Role',
-                              style: TextStyle(
-                                fontSize: 32,
+                              'Welcome, ${UserSession.getCurrentUserName()}!',
+                              style: const TextStyle(
+                                fontSize: 28,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    offset: const Offset(2, 2),
-                                    blurRadius: 4,
-                                  ),
-                                ],
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Text(
-                              'Are you buying or selling?',
+                            const Text(
+                              'Choose your role to get started',
                               style: TextStyle(
                                 fontSize: 16,
-                                color: Colors.white.withOpacity(0.8),
+                                color: Colors.white70,
                               ),
                             ),
                           ],
@@ -96,7 +87,9 @@ class RoleSelectionScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 60),
+
                 // Role selection cards
                 Expanded(
                   child: Padding(
@@ -107,36 +100,25 @@ class RoleSelectionScreen extends StatelessWidget {
                         _buildRoleCard(
                           context,
                           'Seller',
-                          'List your properties and manage your listings',
+                          'List your apartments and manage your listings',
                           Icons.sell_rounded,
-                              () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const EnhancedSellerDashboardScreen(),
-                              ),
-                            );
-                          },
+                          Colors.orange,
+                              () => _selectRole(context, 'seller'),
                         ),
                         const SizedBox(height: 24),
                         _buildRoleCard(
                           context,
                           'Buyer',
-                          'Browse properties and find your dream home',
+                          'Browse apartments and find your dream home',
                           Icons.home_rounded,
-                              () {
-                                Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                    builder: (context) => const BuyerDashboardScreen(),
-                                ),
-                                );
-                          },
+                          Colors.blue,
+                              () => _selectRole(context, 'buyer'),
                         ),
                       ],
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 40),
               ],
             ),
@@ -151,9 +133,9 @@ class RoleSelectionScreen extends StatelessWidget {
       String title,
       String description,
       IconData icon,
+      Color color,
       VoidCallback onTap,
-      )
-  {
+      ) {
     return GestureDetector(
       onTap: onTap,
       child: ClipRRect(
@@ -162,7 +144,7 @@ class RoleSelectionScreen extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(20),
@@ -182,20 +164,19 @@ class RoleSelectionScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: color.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(15),
                   ),
                   child: Icon(
                     icon,
                     size: 36,
-                    color: Colors.white,
+                    color: color,
                   ),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         title,
@@ -208,9 +189,9 @@ class RoleSelectionScreen extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         description,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 14,
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white70,
                           height: 1.4,
                         ),
                       ),
@@ -228,5 +209,27 @@ class RoleSelectionScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _selectRole(BuildContext context, String role) {
+    // Update user role in session
+    UserSession.updateUserRole(role);
+
+    // Navigate to appropriate dashboard
+    if (role == 'seller') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const SellerDashboardFocused(),
+        ),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const BuyerDashboardScreen(),
+        ),
+      );
+    }
   }
 }

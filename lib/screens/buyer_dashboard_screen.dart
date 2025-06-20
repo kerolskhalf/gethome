@@ -7,6 +7,7 @@ import 'property_comparison_screen.dart';
 import 'favorites_screen.dart';
 import 'map_screen.dart';
 import 'user_profile_screen.dart';
+import 'viewing_requests_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 import 'login_screen.dart';
@@ -118,48 +119,59 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     setState(() => _isLoadingProperties = true);
 
     try {
-      // Build query parameters for search endpoint
-      final queryParams = <String, String>{
-        'page': _currentPage.toString(),
-        'pageSize': _pageSize.toString(),
-      };
+      // Try multiple endpoints to ensure we get data
+      Uri uri;
 
-      if (_city.isNotEmpty) {
-        queryParams['city'] = _city;
-      }
-      if (_region.isNotEmpty) {
-        queryParams['region'] = _region;
-      }
-      if (_priceRange.start > 0) {
-        queryParams['minPrice'] = _priceRange.start.round().toString();
-      }
-      if (_priceRange.end < 1000000) {
-        queryParams['maxPrice'] = _priceRange.end.round().toString();
-      }
-      if (_minBedrooms > 0) {
-        queryParams['minBedrooms'] = _minBedrooms.toString();
-      }
-      if (_maxBedrooms < 10) {
-        queryParams['maxBedrooms'] = _maxBedrooms.toString();
+      // First try the search endpoint
+      if (_city.isNotEmpty || _region.isNotEmpty || _priceRange.start > 0 || _priceRange.end < 1000000 || _minBedrooms > 0 || _maxBedrooms < 10) {
+        // Build query parameters for search endpoint
+        final queryParams = <String, String>{
+          'page': _currentPage.toString(),
+          'pageSize': _pageSize.toString(),
+        };
+
+        if (_city.isNotEmpty) queryParams['city'] = _city;
+        if (_region.isNotEmpty) queryParams['region'] = _region;
+        if (_priceRange.start > 0) queryParams['minPrice'] = _priceRange.start.round().toString();
+        if (_priceRange.end < 1000000) queryParams['maxPrice'] = _priceRange.end.round().toString();
+        if (_minBedrooms > 0) queryParams['minBedrooms'] = _minBedrooms.toString();
+        if (_maxBedrooms < 10) queryParams['maxBedrooms'] = _maxBedrooms.toString();
+
+        uri = Uri.parse(ApiConfig.searchPropertiesUrl).replace(queryParameters: queryParams);
+      } else {
+        // Use the all properties endpoint for initial load
+        uri = Uri.parse(ApiConfig.allPropertiesUrl);
       }
 
-      final uri = Uri.parse(ApiConfig.searchPropertiesUrl).replace(
-        queryParameters: queryParams,
-      );
-
-      print('Loading properties from: $uri'); // Debug log
+      print('📡 Loading properties from: $uri'); // Debug log
 
       final response = await http.get(
         uri,
         headers: ApiConfig.headers,
       );
 
-      print('Response status: ${response.statusCode}'); // Debug log
-      print('Response body: ${response.body}'); // Debug log
+      print('📊 Response status: ${response.statusCode}'); // Debug log
+      print('📄 Response body preview: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...'); // Debug log
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final newProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        List<Map<String, dynamic>> newProperties = [];
+
+        // Handle different response formats
+        if (data is List) {
+          newProperties = List<Map<String, dynamic>>.from(data);
+        } else if (data is Map<String, dynamic>) {
+          if (data['data'] != null && data['data'] is List) {
+            newProperties = List<Map<String, dynamic>>.from(data['data']);
+          } else if (data['success'] == true && data['data'] != null) {
+            newProperties = List<Map<String, dynamic>>.from(data['data']);
+          } else {
+            // If data is a map but not in expected format, treat as single property
+            newProperties = [Map<String, dynamic>.from(data)];
+          }
+        }
+
+        print('🏠 Loaded ${newProperties.length} properties'); // Debug log
 
         setState(() {
           if (refresh || _currentPage == 1) {
@@ -168,18 +180,21 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             _allProperties.addAll(newProperties);
           }
 
-          _totalCount = data['totalCount'] ?? 0;
+          _totalCount = data is Map ? (data['totalCount'] ?? newProperties.length) : newProperties.length;
           _hasMoreData = newProperties.length == _pageSize;
           _applyLocalSearch();
           _errorMessage = null;
         });
       } else {
+        print('❌ Failed to load properties: ${response.statusCode}');
+        print('📄 Error response: ${response.body}');
+
         setState(() {
           _errorMessage = 'Failed to load properties (${response.statusCode})';
         });
       }
     } catch (e) {
-      print('Error loading properties: $e'); // Debug log
+      print('💥 Error loading properties: $e'); // Debug log
       setState(() {
         _errorMessage = 'Network error: $e';
       });
@@ -216,7 +231,13 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final newProperties = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        List<Map<String, dynamic>> newProperties = [];
+
+        if (data is List) {
+          newProperties = List<Map<String, dynamic>>.from(data);
+        } else if (data['data'] != null) {
+          newProperties = List<Map<String, dynamic>>.from(data['data']);
+        }
 
         setState(() {
           _allProperties.addAll(newProperties);
@@ -416,10 +437,25 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           child: Column(
             children: [
               _buildAppBar(),
-              if (_isFilterVisible) _buildFilterPanel(),
-              Expanded(
-                child: _buildBody(),
-              ),
+              if (_isFilterVisible) ...[
+                const SizedBox(height: 8),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        _buildFilterPanel(),
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.6,
+                          child: _buildBody(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else
+                Expanded(
+                  child: _buildBody(),
+                ),
             ],
           ),
         ),
@@ -431,7 +467,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   Widget _buildAppBar() {
     return Container(
-      padding: EdgeInsets.all(horizontalPadding),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         border: Border(
@@ -441,6 +477,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -462,7 +499,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Welcome, ${UserSession.getCurrentUserName()}',
+                      'Welcome, ${UserSession.getDisplayName()}',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: isMobile ? 16 : 20,
@@ -522,6 +559,14 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         tooltip: 'Map View',
       ),
       IconButton(
+        icon: const Icon(Icons.calendar_today, color: Colors.white, size: 24),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
+        ),
+        tooltip: 'My Requests',
+      ),
+      IconButton(
         icon: const Icon(Icons.person, color: Colors.white, size: 24),
         onPressed: () => Navigator.push(
           context,
@@ -567,6 +612,12 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         color: const Color(0xFF234E70),
         onSelected: (value) {
           switch (value) {
+            case 'requests':
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
+              );
+              break;
             case 'profile':
               Navigator.push(
                 context,
@@ -579,6 +630,10 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           }
         },
         itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'requests',
+            child: Text('My Requests', style: TextStyle(color: Colors.white)),
+          ),
           const PopupMenuItem(
             value: 'profile',
             child: Text('Profile', style: TextStyle(color: Colors.white)),
@@ -626,17 +681,16 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   Widget _buildFilterPanel() {
     return Container(
-      padding: EdgeInsets.all(horizontalPadding),
+      margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
-        border: Border(
-          bottom: BorderSide(
-            color: Colors.white.withOpacity(0.2),
-          ),
-        ),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -658,7 +712,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               ),
             ],
           ),
-          SizedBox(height: isMobile ? 12 : 16),
+          const SizedBox(height: 16),
 
           // Location filters
           if (isDesktop)
@@ -689,7 +743,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                 }),
               ],
             ),
-          SizedBox(height: isMobile ? 12 : 16),
+          const SizedBox(height: 16),
 
           Text(
             'Price Range',
@@ -714,7 +768,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               });
             },
           ),
-          SizedBox(height: isMobile ? 12 : 16),
+          const SizedBox(height: 16),
 
           if (isDesktop)
             Row(
@@ -733,7 +787,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               ],
             ),
 
-          SizedBox(height: isMobile ? 16 : 20),
+          const SizedBox(height: 20),
 
           SizedBox(
             width: double.infinity,
@@ -893,29 +947,32 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
     if (_errorMessage != null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.white.withOpacity(0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 18,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.white.withOpacity(0.5),
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => _loadProperties(refresh: true),
-              child: const Text('Retry'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 18,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => _loadProperties(refresh: true),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1204,32 +1261,51 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.search_off,
-            size: 64,
-            color: Colors.white.withOpacity(0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No properties found',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 18,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 64,
+              color: Colors.white.withOpacity(0.5),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Try adjusting your filters or search terms',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
-              fontSize: 14,
+            const SizedBox(height: 16),
+            Text(
+              'No properties found',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 18,
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              'Try adjusting your filters or search terms',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => _loadProperties(refresh: true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white.withOpacity(0.2),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              label: const Text(
+                'Refresh Properties',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
