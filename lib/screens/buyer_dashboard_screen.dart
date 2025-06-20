@@ -1,4 +1,4 @@
-// lib/screens/buyer_dashboard_screen.dart - FIXED VERSION
+// lib/screens/buyer_dashboard_screen.dart - FIXED VERSION with API Search
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -20,12 +20,194 @@ class BuyerDashboardScreen extends StatefulWidget {
 }
 
 class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
+  // Predefined cities and regions from the mapping
+  static const List<String> _availableCities = [
+    'Any', // Default option
+    'Alexandria',
+    'Aswan',
+    'Asyut',
+    'Beheira',
+    'Beni Suef',
+    'Cairo',
+    'Dakahlia',
+    'Damietta',
+    'Gharbia',
+    'Giza',
+    'Ismailia',
+    'Kafr Al-Sheikh',
+    'Matruh',
+    'Minya',
+    'Monufia',
+    'Port Said',
+    'Qalyubia',
+    'Qena',
+    'Red Sea',
+    'Sharqia',
+    'South Sinai',
+    'Suez',
+  ];
+
+  static const List<String> _availableRegions = [
+    'Any', // Default option
+    '10th of Ramadan',
+    '6th of October',
+    'Abasiya',
+    'Abu Qir',
+    'Abu Talat',
+    'Agami',
+    'Agouza',
+    'Ain Shams',
+    'Ain Sukhna',
+    'Al Hadrah',
+    'Al Ibrahimiyyah',
+    'Al Manial',
+    'Alamein',
+    'Almazah',
+    'Amreya',
+    'Arbaeen',
+    'Ard El Lewa',
+    'Asafra',
+    'Aswan City',
+    'Asyut City',
+    'Awayed',
+    'Azarita',
+    'Bacchus',
+    'Badr City',
+    'Bahray - Anfoshy',
+    'Bahtim',
+    'Banha',
+    'Basateen',
+    'Belqas',
+    'Beni Suef City',
+    'Bilbeis',
+    'Bolkly',
+    'Borg Al-Arab',
+    'Camp Caesar',
+    'Cleopatra',
+    'Damanhour',
+    'Damietta City',
+    'Dar Al-Salaam',
+    'Dawahy District',
+    'Dhahria',
+    'Dokki',
+    'Downtown Cairo',
+    'El Fostat',
+    'El Max',
+    'Faisal',
+    'Fleming',
+    'Gamasa',
+    'Gesr Al Suez',
+    'Gianaclis',
+    'Giza District',
+    'Glim',
+    'Gomrok',
+    'Gouna',
+    'Hadayek 6th of October',
+    'Hadayek Al-Ahram',
+    'Hadayek Al-Kobba',
+    'Hadayek Helwan',
+    'Haram',
+    'Heliopolis',
+    'Helmeyat El Zaytoun',
+    'Helwan',
+    'Hurghada',
+    'Imbaba',
+    'Ismailia City',
+    'Kafr Abdo',
+    'Kafr Al-Dawwar',
+    'Kafr Al-Sheikh City',
+    'Katameya',
+    'Koum Al-Dikka',
+    'Labban',
+    'Laurent',
+    'Maadi',
+    'Maamoura',
+    'Madinaty',
+    'Mahalla Al-Kobra',
+    'Mandara',
+    'Manshiyya',
+    'Mansura',
+    'Mansuriyya',
+    'Marg',
+    'Markaz Badr',
+    'Marsa Matrouh',
+    'Maryotaya',
+    'Masr Al-Kadema',
+    'Matareya',
+    'Miami',
+    'Minya City',
+    'Mit Ghamr',
+    'Mohandessin',
+    'Moharam Bik',
+    'Mokattam',
+    'Moneeb',
+    'Montazah',
+    'Mostakbal City',
+    'Nabaruh',
+    'Nagela',
+    'Nakheel',
+    'Nasr City',
+    'New Beni Suef',
+    'New Cairo - El Tagamoa',
+    'New Capital City',
+    'New Damietta',
+    'New Heliopolis',
+    'New Mansoura',
+    'New Nozha',
+    'North Coast',
+    'Obour City',
+    'Qalyub',
+    'Qasr Al-Nil',
+    'Qena City',
+    'Raml Station',
+    'Ramses + Ramses Extension',
+    'Ras Al-Bar',
+    'Ras El Tin',
+    'Ras Sedr',
+    'Rehab City',
+    'Rod Al-Farag',
+    'Roushdy',
+    'Saba Pasha',
+    'Saft El Laban',
+    'Salam City',
+    'San Stefano',
+    'Schutz',
+    'Seyouf',
+    'Sharm Al-Sheikh',
+    'Sharq District',
+    'Shatby',
+    'Shebin Al-Koum',
+    'Sheikh Zayed',
+    'Sheraton',
+    'Shorouk City',
+    'Shubra',
+    'Shubra Al-Khaimah',
+    'Sidi Beshr',
+    'Sidi Gaber',
+    'Smoha',
+    'Sporting',
+    'Stanley',
+    'Suez District',
+    'Taba',
+    'Tanta',
+    'Tersa',
+    'Victoria',
+    'Wardian',
+    'Warraq',
+    'West Somid',
+    'Zagazig',
+    'Zahraa Al Maadi',
+    'Zamalek',
+    'Zezenia',
+    'Zohour District',
+  ];
+
   // Filter values
   RangeValues _priceRange = const RangeValues(0, 1000000);
   int _minBedrooms = 0;
   int _maxBedrooms = 10;
-  String _city = '';
-  String _region = '';
+  String _selectedCity = 'Any';
+  String _selectedRegion = 'Any';
   bool _isFilterVisible = false;
   final Set<String> _selectedForComparison = {};
   bool _isSelectionMode = false;
@@ -35,8 +217,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
 
   // Data and loading states
-  List<Map<String, dynamic>> _allProperties = [];
-  List<Map<String, dynamic>> _filteredProperties = [];
+  List<Map<String, dynamic>> _properties = [];
+  List<Map<String, dynamic>> _allLoadedProperties = []; // Store unfiltered results
   bool _isLoadingProperties = false;
   bool _isLoadingMore = false;
   String? _errorMessage;
@@ -73,11 +255,13 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     }
   }
 
+  // FIX: Updated to use search API with filters or fallback to all properties
   Future<void> _loadProperties({bool refresh = false}) async {
     if (refresh) {
       setState(() {
         _currentPage = 1;
-        _allProperties.clear();
+        _properties.clear();
+        _allLoadedProperties.clear();
         _hasMoreData = true;
         _errorMessage = null;
       });
@@ -86,11 +270,63 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     setState(() => _isLoadingProperties = true);
 
     try {
-      print('🔄 Loading properties from API...');
+      print('🔄 Loading properties with filters...');
 
-      // Use the all properties endpoint initially
+      // Build query parameters for search API
+      final queryParams = <String, String>{
+        'page': _currentPage.toString(),
+        'pageSize': _pageSize.toString(),
+      };
+
+      // Only add parameters that have actual values (not 'Any')
+      if (_selectedCity != 'Any' && _selectedCity.isNotEmpty) {
+        queryParams['city'] = _selectedCity.toLowerCase();
+      }
+      if (_selectedRegion != 'Any' && _selectedRegion.isNotEmpty) {
+        queryParams['region'] = _selectedRegion.toLowerCase();
+      }
+
+      // Add price range if not at extremes
+      if (_priceRange.start > 0) {
+        queryParams['minPrice'] = _priceRange.start.toString();
+      }
+      if (_priceRange.end < 1000000) {
+        queryParams['maxPrice'] = _priceRange.end.toString();
+      }
+
+      // Add bedroom filters if not at defaults
+      if (_minBedrooms > 0) {
+        queryParams['minBedrooms'] = _minBedrooms.toString();
+      }
+      if (_maxBedrooms < 10) {
+        queryParams['maxBedrooms'] = _maxBedrooms.toString();
+      }
+
+      // Check if any filters are applied (excluding pagination)
+      final hasFilters = queryParams.keys.any((key) =>
+      key != 'page' && key != 'pageSize');
+
+      String endpoint;
+      if (hasFilters) {
+        endpoint = ApiConfig.searchPropertiesUrl;
+        print('🔍 Using SEARCH endpoint with filters');
+      } else {
+        endpoint = ApiConfig.allPropertiesUrl;
+        // Clear query params for all properties endpoint
+        queryParams.clear();
+        print('🏠 Using ALL PROPERTIES endpoint (no filters)');
+      }
+
+      print('📡 Query parameters: $queryParams');
+
+      final uri = queryParams.isEmpty
+          ? Uri.parse(endpoint)
+          : Uri.parse(endpoint).replace(queryParameters: queryParams);
+
+      print('🌐 Request URL: $uri');
+
       final response = await http.get(
-        Uri.parse(ApiConfig.allPropertiesUrl),
+        uri,
         headers: ApiConfig.headers,
       ).timeout(const Duration(seconds: 10));
 
@@ -101,22 +337,61 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         final data = json.decode(response.body);
         List<Map<String, dynamic>> newProperties = [];
 
-        // Handle different response formats safely
-        if (data is List) {
-          newProperties = data.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
-        } else if (data is Map<String, dynamic>) {
-          if (data.containsKey('data') && data['data'] is List) {
+        if (hasFilters) {
+          // Handle search API response format
+          if (data is Map<String, dynamic> && data.containsKey('data')) {
+            final dataList = data['data'] as List? ?? [];
+            newProperties = dataList
+                .map((item) => _safeMapConversion(item))
+                .where((item) => item.isNotEmpty)
+                .toList();
+
+            // Update pagination info from search API
+            _totalCount = data['totalCount'] ?? 0;
+            final pageSize = data['pageSize'] ?? _pageSize;
+
+            _hasMoreData = newProperties.length == pageSize &&
+                (_currentPage * pageSize) < _totalCount;
+
+            print('📊 Search API returned: ${_totalCount} total, ${newProperties.length} on this page');
+          } else {
+            print('⚠️ Unexpected search API response format');
+            newProperties = [];
+          }
+        } else {
+          // Handle all properties response format
+          if (data is List) {
+            newProperties = data.map((item) => _safeMapConversion(item))
+                .where((item) => item.isNotEmpty).toList();
+          } else if (data is Map<String, dynamic> && data.containsKey('data')) {
             final dataList = data['data'] as List;
-            newProperties = dataList.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
-          } else if (data.containsKey('success') && data['success'] == true && data.containsKey('data')) {
-            if (data['data'] is List) {
-              final dataList = data['data'] as List;
-              newProperties = dataList.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
+            newProperties = dataList.map((item) => _safeMapConversion(item))
+                .where((item) => item.isNotEmpty).toList();
+          }
+
+          // For all properties, implement simple pagination
+          _totalCount = newProperties.length;
+          final startIndex = (_currentPage - 1) * _pageSize;
+          final endIndex = startIndex + _pageSize;
+
+          if (_currentPage == 1) {
+            // First page: take first pageSize items
+            if (newProperties.length > _pageSize) {
+              newProperties = newProperties.sublist(0, _pageSize);
+              _hasMoreData = true;
+            } else {
+              _hasMoreData = false;
             }
+          } else {
+            // Subsequent pages: this shouldn't happen with all properties endpoint
+            // but handle it anyway
+            _hasMoreData = false;
+            newProperties = [];
           }
         }
 
         print('🏠 Successfully loaded ${newProperties.length} properties');
+        print('📊 Total count: $_totalCount, Has more: $_hasMoreData');
 
         // Debug: Print first property structure
         if (newProperties.isNotEmpty) {
@@ -125,16 +400,20 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
         setState(() {
           if (refresh || _currentPage == 1) {
-            _allProperties = newProperties;
+            _allLoadedProperties = newProperties;
+            _properties = newProperties;
           } else {
-            _allProperties.addAll(newProperties);
+            _allLoadedProperties.addAll(newProperties);
+            _properties = List.from(_allLoadedProperties);
           }
-
-          _totalCount = newProperties.length;
-          _hasMoreData = newProperties.length == _pageSize;
-          _applyLocalSearch();
           _errorMessage = null;
         });
+
+        // Apply text search if needed (after loading results)
+        if (_searchQuery.isNotEmpty) {
+          _applyLocalTextSearch();
+        }
+
       } else {
         print('❌ Failed to load properties: ${response.statusCode}');
         print('📄 Error response: ${response.body}');
@@ -173,6 +452,10 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           'status': item['status'] ?? 0,
           'totalRooms': _safeNumericConversion(item['totalRooms'], 0),
           'userId': _safeNumericConversion(item['userId'], 0),
+          'isFurnished': item['isFurnished'] == true,
+          'floor': _safeNumericConversion(item['floor'], 0),
+          'latitude': _safeNumericConversion(item['latitude'], 0),
+          'longitude': _safeNumericConversion(item['longitude'], 0),
         };
       }
       return {};
@@ -203,37 +486,60 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       await _loadProperties();
     } catch (e) {
       print('Error loading more properties: $e');
+      _currentPage--; // Revert page increment on error
     } finally {
       setState(() => _isLoadingMore = false);
     }
   }
 
-  void _applyLocalSearch() {
+  // FIX: Improved text search that works with API results
+  void _applyLocalTextSearch() {
     if (_searchQuery.isEmpty) {
+      // If no search query, show all loaded properties
       setState(() {
-        _filteredProperties = List.from(_allProperties);
+        _properties = List.from(_allLoadedProperties);
       });
-    } else {
-      setState(() {
-        _filteredProperties = _allProperties.where((property) {
-          final houseType = (property['houseType'] ?? '').toString().toLowerCase();
-          final city = (property['city'] ?? '').toString().toLowerCase();
-          final region = (property['region'] ?? '').toString().toLowerCase();
-          final searchLower = _searchQuery.toLowerCase();
-
-          return houseType.contains(searchLower) ||
-              city.contains(searchLower) ||
-              region.contains(searchLower);
-        }).toList();
-      });
+      return;
     }
+
+    setState(() {
+      _properties = _allLoadedProperties.where((property) {
+        final houseType = (property['houseType'] ?? '').toString().toLowerCase();
+        final city = (property['city'] ?? '').toString().toLowerCase();
+        final region = (property['region'] ?? '').toString().toLowerCase();
+        final searchLower = _searchQuery.toLowerCase().trim();
+
+        // Search in multiple fields
+        return houseType.contains(searchLower) ||
+            city.contains(searchLower) ||
+            region.contains(searchLower);
+      }).toList();
+    });
   }
 
   void _performSearch(String query) {
     setState(() {
-      _searchQuery = query;
-      _applyLocalSearch();
+      _searchQuery = query.trim();
     });
+
+    if (_searchQuery.isEmpty) {
+      // If search is cleared, reload all properties with current filters
+      _loadProperties(refresh: true);
+    } else {
+      // Apply text search to current results
+      _applyLocalTextSearch();
+    }
+  }
+
+  // FIX: Apply filters using API search
+  void _applyFilters() {
+    setState(() {
+      _isFilterVisible = false;
+      _currentPage = 1;
+      _searchQuery = ''; // Clear text search when applying filters
+    });
+    _searchController.clear(); // Clear search text field
+    _loadProperties(refresh: true);
   }
 
   void _resetFilters() {
@@ -241,10 +547,12 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       _priceRange = const RangeValues(0, 1000000);
       _minBedrooms = 0;
       _maxBedrooms = 10;
-      _city = '';
-      _region = '';
+      _selectedCity = 'Any';
+      _selectedRegion = 'Any';
       _searchQuery = '';
       _currentPage = 1;
+      _isFilterVisible = false;
+      _allLoadedProperties.clear();
     });
     _searchController.clear();
     _loadProperties(refresh: true);
@@ -333,6 +641,38 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     });
   }
 
+  void _startComparison() {
+    if (_selectedForComparison.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select at least 2 properties to compare'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final selectedProperties = _properties
+        .where((p) => _selectedForComparison.contains(p['id'].toString()))
+        .toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PropertyComparisonScreen(
+          selectedProperties: selectedProperties,
+        ),
+      ),
+    );
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedForComparison.clear();
+      _isSelectionMode = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -361,7 +701,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                       children: [
                         _buildFilterPanel(),
                         SizedBox(
-                          height: MediaQuery.of(context).size.height * 0.6,
+                          height: MediaQuery.of(context).size.height * 0.5,
                           child: _buildBody(),
                         ),
                       ],
@@ -377,6 +717,34 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         ),
       ),
       bottomNavigationBar: _buildBottomNavigationBar(),
+      floatingActionButton: _selectedForComparison.isNotEmpty
+          ? Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            onPressed: _clearSelection,
+            backgroundColor: Colors.grey.withOpacity(0.8),
+            heroTag: "clear",
+            label: const Text(
+              'Clear',
+              style: TextStyle(color: Colors.white),
+            ),
+            icon: const Icon(Icons.clear, color: Colors.white),
+          ),
+          const SizedBox(width: 8),
+          FloatingActionButton.extended(
+            onPressed: _startComparison,
+            backgroundColor: Colors.blue,
+            heroTag: "compare",
+            label: Text(
+              'Compare (${_selectedForComparison.length})',
+              style: const TextStyle(color: Colors.white),
+            ),
+            icon: const Icon(Icons.compare_arrows, color: Colors.white),
+          ),
+        ],
+      )
+          : null,
     );
   }
 
@@ -422,7 +790,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                       ),
                     ),
                     Text(
-                      'Find your dream home (${_filteredProperties.length} properties)',
+                      'Find your dream home (${_properties.length} properties)',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 12,
@@ -527,6 +895,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
+  // FIX: Enhanced filter panel with city/region dropdowns
   Widget _buildFilterPanel() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -561,6 +930,32 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // City and Region dropdowns
+          Row(
+            children: [
+              Expanded(
+                child: _buildDropdownFilter(
+                  'City',
+                  _selectedCity,
+                  _availableCities,
+                      (value) => setState(() => _selectedCity = value!),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildDropdownFilter(
+                  'Region',
+                  _selectedRegion,
+                  _availableRegions,
+                      (value) => setState(() => _selectedRegion = value!),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Price Range
           const Text(
             'Price Range',
             style: TextStyle(
@@ -584,16 +979,117 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               });
             },
           ),
+          const SizedBox(height: 16),
+
+          // Bedrooms
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Min Bedrooms',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.2)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _minBedrooms,
+                          isExpanded: true,
+                          dropdownColor: const Color(0xFF234E70),
+                          style: const TextStyle(color: Colors.white),
+                          items: List.generate(11, (index) => index).map((int value) {
+                            return DropdownMenuItem<int>(
+                              value: value,
+                              child: Text(value == 0 ? 'Any' : value.toString()),
+                            );
+                          }).toList(),
+                          onChanged: (int? newValue) {
+                            if (newValue != null) {
+                              setState(() {
+                                _minBedrooms = newValue;
+                                if (_minBedrooms > _maxBedrooms) {
+                                  _maxBedrooms = _minBedrooms;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Max Bedrooms',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.2)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _maxBedrooms,
+                          isExpanded: true,
+                          dropdownColor: const Color(0xFF234E70),
+                          style: const TextStyle(color: Colors.white),
+                          items: List.generate(11, (index) => index).map((int value) {
+                            return DropdownMenuItem<int>(
+                              value: value,
+                              child: Text(value == 0 ? 'Any' : value.toString()),
+                            );
+                          }).toList(),
+                          onChanged: (int? newValue) {
+                            if (newValue != null) {
+                              setState(() {
+                                _maxBedrooms = newValue;
+                                if (_maxBedrooms < _minBedrooms) {
+                                  _minBedrooms = _maxBedrooms;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
+
+          // Apply Filters Button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _isFilterVisible = false;
-                });
-                _loadProperties(refresh: true);
-              },
+              onPressed: _applyFilters,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white.withOpacity(0.2),
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -616,8 +1112,57 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
+  Widget _buildDropdownFilter(
+      String label,
+      String value,
+      List<String> items,
+      Function(String?) onChanged,
+      ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withOpacity(0.2)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: value,
+              isExpanded: true,
+              dropdownColor: const Color(0xFF234E70),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              items: items.map((String item) {
+                return DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(
+                    item,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                );
+              }).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBody() {
-    if (_isLoadingProperties && _allProperties.isEmpty) {
+    if (_isLoadingProperties && _properties.isEmpty) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -625,7 +1170,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             CircularProgressIndicator(color: Colors.white),
             SizedBox(height: 16),
             Text(
-              'Loading properties...',
+              'Searching properties...',
               style: TextStyle(color: Colors.white),
             ),
           ],
@@ -665,7 +1210,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       );
     }
 
-    if (_filteredProperties.isEmpty) {
+    if (_properties.isEmpty) {
       return _buildEmptyState();
     }
 
@@ -679,10 +1224,10 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       child: ListView.builder(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
-        itemCount: _filteredProperties.length + (_isLoadingMore ? 1 : 0),
+        itemCount: _properties.length + (_isLoadingMore ? 1 : 0),
         itemBuilder: (context, index) {
-          if (index < _filteredProperties.length) {
-            final property = _filteredProperties[index];
+          if (index < _properties.length) {
+            final property = _properties[index];
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: _buildPropertyCard(property),
@@ -803,7 +1348,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                          '${_capitalizeFirst(property['city'] ?? '')}, ${_capitalizeFirst(property['region'] ?? '')}',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.8),
                             fontSize: 12,
@@ -868,6 +1413,11 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
+  String _capitalizeFirst(String text) {
+    if (text.isEmpty) return text;
+    return text.substring(0, 1).toUpperCase() + text.substring(1).toLowerCase();
+  }
+
   Widget _buildPropertyImage(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty || !ApiConfig.isValidImagePath(imagePath)) {
       return Container(
@@ -924,6 +1474,15 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   }
 
   Widget _buildEmptyState() {
+    // Check if any filters are applied
+    final hasActiveFilters = _selectedCity != 'Any' ||
+        _selectedRegion != 'Any' ||
+        _priceRange.start > 0 ||
+        _priceRange.end < 1000000 ||
+        _minBedrooms > 0 ||
+        _maxBedrooms < 10 ||
+        _searchQuery.isNotEmpty;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -931,13 +1490,15 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.search_off,
+              hasActiveFilters ? Icons.filter_list_off : Icons.search_off,
               size: 64,
               color: Colors.white.withOpacity(0.5),
             ),
             const SizedBox(height: 16),
             Text(
-              'No properties found',
+              hasActiveFilters
+                  ? 'No properties match your filters'
+                  : 'No properties found',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.8),
                 fontSize: 18,
@@ -945,7 +1506,9 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Try adjusting your filters or search terms',
+              hasActiveFilters
+                  ? 'Try adjusting your filters to see more results'
+                  : 'Try adjusting your search terms',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.6),
                 fontSize: 14,
@@ -953,6 +1516,24 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
+            if (hasActiveFilters) ...[
+              ElevatedButton.icon(
+                onPressed: _resetFilters,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.withOpacity(0.3),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                ),
+                icon: const Icon(Icons.clear_all, color: Colors.white),
+                label: const Text(
+                  'Clear All Filters',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             ElevatedButton.icon(
               onPressed: () => _loadProperties(refresh: true),
               style: ElevatedButton.styleFrom(
