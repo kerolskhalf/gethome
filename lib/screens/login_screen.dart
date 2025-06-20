@@ -134,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => const SellerDashboardScreen(),
+                builder: (context) => const EnhancedSellerDashboardScreen(),
               ),
             );
           } else if (storedRole == 'buyer') {

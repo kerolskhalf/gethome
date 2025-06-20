@@ -113,7 +113,7 @@ class RoleSelectionScreen extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const SellerDashboardScreen(),
+                                builder: (context) => const EnhancedSellerDashboardScreen(),
                               ),
                             );
                           },
