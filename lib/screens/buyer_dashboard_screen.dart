@@ -1,4 +1,4 @@
-// lib/screens/buyer_dashboard_screen.dart
+// lib/screens/buyer_dashboard_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -50,11 +50,6 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   // Scroll controller for pagination
   final ScrollController _scrollController = ScrollController();
 
-  // Responsive breakpoints
-  static const double mobileBreakpoint = 600;
-  static const double tabletBreakpoint = 900;
-  static const double desktopBreakpoint = 1200;
-
   @override
   void initState() {
     super.initState();
@@ -69,38 +64,9 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     super.dispose();
   }
 
-  // Get responsive values based on screen size
-  bool get isMobile => MediaQuery.of(context).size.width < mobileBreakpoint;
-  bool get isTablet => MediaQuery.of(context).size.width >= mobileBreakpoint && MediaQuery.of(context).size.width < tabletBreakpoint;
-  bool get isDesktop => MediaQuery.of(context).size.width >= tabletBreakpoint;
-
-  double get horizontalPadding {
-    if (isDesktop) return 40;
-    if (isTablet) return 24;
-    return 16;
-  }
-
-  double get verticalPadding {
-    if (isDesktop) return 32;
-    if (isTablet) return 20;
-    return 16;
-  }
-
-  int get crossAxisCount {
-    final width = MediaQuery.of(context).size.width;
-    if (width >= desktopBreakpoint) return 3;
-    if (width >= tabletBreakpoint) return 2;
-    return 1;
-  }
-
-  double get cardAspectRatio {
-    if (isDesktop) return 0.75;
-    if (isTablet) return 0.8;
-    return 0.85;
-  }
-
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       if (!_isLoadingMore && _hasMoreData) {
         _loadMoreProperties();
       }
@@ -113,65 +79,49 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         _currentPage = 1;
         _allProperties.clear();
         _hasMoreData = true;
+        _errorMessage = null;
       });
     }
 
     setState(() => _isLoadingProperties = true);
 
     try {
-      // Try multiple endpoints to ensure we get data
-      Uri uri;
+      print('🔄 Loading properties from API...');
 
-      // First try the search endpoint
-      if (_city.isNotEmpty || _region.isNotEmpty || _priceRange.start > 0 || _priceRange.end < 1000000 || _minBedrooms > 0 || _maxBedrooms < 10) {
-        // Build query parameters for search endpoint
-        final queryParams = <String, String>{
-          'page': _currentPage.toString(),
-          'pageSize': _pageSize.toString(),
-        };
-
-        if (_city.isNotEmpty) queryParams['city'] = _city;
-        if (_region.isNotEmpty) queryParams['region'] = _region;
-        if (_priceRange.start > 0) queryParams['minPrice'] = _priceRange.start.round().toString();
-        if (_priceRange.end < 1000000) queryParams['maxPrice'] = _priceRange.end.round().toString();
-        if (_minBedrooms > 0) queryParams['minBedrooms'] = _minBedrooms.toString();
-        if (_maxBedrooms < 10) queryParams['maxBedrooms'] = _maxBedrooms.toString();
-
-        uri = Uri.parse(ApiConfig.searchPropertiesUrl).replace(queryParameters: queryParams);
-      } else {
-        // Use the all properties endpoint for initial load
-        uri = Uri.parse(ApiConfig.allPropertiesUrl);
-      }
-
-      print('📡 Loading properties from: $uri'); // Debug log
-
+      // Use the all properties endpoint initially
       final response = await http.get(
-        uri,
+        Uri.parse(ApiConfig.allPropertiesUrl),
         headers: ApiConfig.headers,
-      );
+      ).timeout(const Duration(seconds: 10));
 
-      print('📊 Response status: ${response.statusCode}'); // Debug log
-      print('📄 Response body preview: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...'); // Debug log
+      print('📡 Response status: ${response.statusCode}');
+      print('📄 Response body length: ${response.body.length}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         List<Map<String, dynamic>> newProperties = [];
 
-        // Handle different response formats
+        // Handle different response formats safely
         if (data is List) {
-          newProperties = List<Map<String, dynamic>>.from(data);
+          newProperties = data.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
         } else if (data is Map<String, dynamic>) {
-          if (data['data'] != null && data['data'] is List) {
-            newProperties = List<Map<String, dynamic>>.from(data['data']);
-          } else if (data['success'] == true && data['data'] != null) {
-            newProperties = List<Map<String, dynamic>>.from(data['data']);
-          } else {
-            // If data is a map but not in expected format, treat as single property
-            newProperties = [Map<String, dynamic>.from(data)];
+          if (data.containsKey('data') && data['data'] is List) {
+            final dataList = data['data'] as List;
+            newProperties = dataList.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
+          } else if (data.containsKey('success') && data['success'] == true && data.containsKey('data')) {
+            if (data['data'] is List) {
+              final dataList = data['data'] as List;
+              newProperties = dataList.map((item) => _safeMapConversion(item)).where((item) => item.isNotEmpty).toList();
+            }
           }
         }
 
-        print('🏠 Loaded ${newProperties.length} properties'); // Debug log
+        print('🏠 Successfully loaded ${newProperties.length} properties');
+
+        // Debug: Print first property structure
+        if (newProperties.isNotEmpty) {
+          print('📋 Sample property: ${newProperties.first}');
+        }
 
         setState(() {
           if (refresh || _currentPage == 1) {
@@ -180,7 +130,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             _allProperties.addAll(newProperties);
           }
 
-          _totalCount = data is Map ? (data['totalCount'] ?? newProperties.length) : newProperties.length;
+          _totalCount = newProperties.length;
           _hasMoreData = newProperties.length == _pageSize;
           _applyLocalSearch();
           _errorMessage = null;
@@ -190,17 +140,57 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         print('📄 Error response: ${response.body}');
 
         setState(() {
-          _errorMessage = 'Failed to load properties (${response.statusCode})';
+          _errorMessage = 'Failed to load properties. Server returned ${response.statusCode}';
         });
       }
     } catch (e) {
-      print('💥 Error loading properties: $e'); // Debug log
+      print('💥 Error loading properties: $e');
       setState(() {
-        _errorMessage = 'Network error: $e';
+        _errorMessage = 'Network error: ${e.toString()}';
       });
     } finally {
       setState(() => _isLoadingProperties = false);
     }
+  }
+
+  // Helper method to safely convert API response items to Map
+  Map<String, dynamic> _safeMapConversion(dynamic item) {
+    try {
+      if (item is Map<String, dynamic>) {
+        // Ensure all required fields exist with safe defaults
+        return {
+          'id': item['id'] ?? 0,
+          'houseType': item['houseType']?.toString() ?? 'Property',
+          'city': item['city']?.toString() ?? '',
+          'region': item['region']?.toString() ?? '',
+          'price': _safeNumericConversion(item['price'], 0),
+          'size': _safeNumericConversion(item['size'], 0),
+          'bedrooms': _safeNumericConversion(item['bedrooms'], 0),
+          'bathrooms': _safeNumericConversion(item['bathrooms'], 0),
+          'imagePath': item['imagePath']?.toString() ?? '',
+          'isHighFloor': item['isHighFloor'] == true,
+          'pricePerM2': _safeNumericConversion(item['pricePerM2'], 0),
+          'status': item['status'] ?? 0,
+          'totalRooms': _safeNumericConversion(item['totalRooms'], 0),
+          'userId': _safeNumericConversion(item['userId'], 0),
+        };
+      }
+      return {};
+    } catch (e) {
+      print('⚠️ Error converting property item: $e');
+      return {};
+    }
+  }
+
+  // Helper method to safely convert numeric values
+  dynamic _safeNumericConversion(dynamic value, dynamic defaultValue) {
+    if (value == null) return defaultValue;
+    if (value is num) return value;
+    if (value is String) {
+      final parsed = num.tryParse(value);
+      return parsed ?? defaultValue;
+    }
+    return defaultValue;
   }
 
   Future<void> _loadMoreProperties() async {
@@ -210,41 +200,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
     try {
       _currentPage++;
-
-      final queryParams = <String, String>{
-        'page': _currentPage.toString(),
-        'pageSize': _pageSize.toString(),
-      };
-
-      if (_city.isNotEmpty) queryParams['city'] = _city;
-      if (_region.isNotEmpty) queryParams['region'] = _region;
-      if (_priceRange.start > 0) queryParams['minPrice'] = _priceRange.start.round().toString();
-      if (_priceRange.end < 1000000) queryParams['maxPrice'] = _priceRange.end.round().toString();
-      if (_minBedrooms > 0) queryParams['minBedrooms'] = _minBedrooms.toString();
-      if (_maxBedrooms < 10) queryParams['maxBedrooms'] = _maxBedrooms.toString();
-
-      final uri = Uri.parse(ApiConfig.searchPropertiesUrl).replace(
-        queryParameters: queryParams,
-      );
-
-      final response = await http.get(uri, headers: ApiConfig.headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        List<Map<String, dynamic>> newProperties = [];
-
-        if (data is List) {
-          newProperties = List<Map<String, dynamic>>.from(data);
-        } else if (data['data'] != null) {
-          newProperties = List<Map<String, dynamic>>.from(data['data']);
-        }
-
-        setState(() {
-          _allProperties.addAll(newProperties);
-          _hasMoreData = newProperties.length == _pageSize;
-          _applyLocalSearch();
-        });
-      }
+      await _loadProperties();
     } catch (e) {
       print('Error loading more properties: $e');
     } finally {
@@ -255,7 +211,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   void _applyLocalSearch() {
     if (_searchQuery.isEmpty) {
       setState(() {
-        _filteredProperties = _allProperties;
+        _filteredProperties = List.from(_allProperties);
       });
     } else {
       setState(() {
@@ -278,14 +234,6 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       _searchQuery = query;
       _applyLocalSearch();
     });
-  }
-
-  void _applyFilters() {
-    setState(() {
-      _currentPage = 1;
-      _isFilterVisible = false;
-    });
-    _loadProperties(refresh: true);
   }
 
   void _resetFilters() {
@@ -343,6 +291,19 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
+  void _handlePropertyTap(Map<String, dynamic> property) {
+    if (_isSelectionMode) {
+      _togglePropertySelection(property['id'].toString());
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PropertyDetailsScreen(property: property),
+        ),
+      );
+    }
+  }
+
   void _togglePropertySelection(String propertyId) {
     setState(() {
       if (_selectedForComparison.contains(propertyId)) {
@@ -363,51 +324,6 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         }
       }
     });
-  }
-
-  void _startComparison() {
-    if (_selectedForComparison.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select at least 2 properties to compare'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final selectedProperties = _filteredProperties
-        .where((p) => _selectedForComparison.contains(p['id'].toString()))
-        .toList();
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PropertyComparisonScreen(
-          selectedProperties: selectedProperties,
-        ),
-      ),
-    );
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selectedForComparison.clear();
-      _isSelectionMode = false;
-    });
-  }
-
-  void _handlePropertyTap(Map<String, dynamic> property) {
-    if (_isSelectionMode) {
-      _togglePropertySelection(property['id'].toString());
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PropertyDetailsScreen(property: property),
-        ),
-      );
-    }
   }
 
   void _handlePropertyLongPress(Map<String, dynamic> property) {
@@ -460,14 +376,13 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           ),
         ),
       ),
-      floatingActionButton: _buildFloatingActionButtons(),
-      bottomNavigationBar: isDesktop ? null : _buildBottomNavigationBar(),
+      bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
   Widget _buildAppBar() {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         border: Border(
@@ -482,196 +397,129 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           Row(
             children: [
               CircleAvatar(
-                radius: isMobile ? 20 : 24,
+                radius: 20,
                 backgroundColor: Colors.white.withOpacity(0.2),
                 child: Text(
                   UserSession.getUserInitials(),
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
-                    fontSize: isMobile ? 14 : 16,
+                    fontSize: 14,
                   ),
                 ),
               ),
-              SizedBox(width: isMobile ? 12 : 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Welcome, ${UserSession.getDisplayName()}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
-                        fontSize: isMobile ? 16 : 20,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
                       'Find your dream home (${_filteredProperties.length} properties)',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: isMobile ? 12 : 14,
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (isDesktop) ..._buildDesktopActions(),
-              if (!isDesktop) ..._buildMobileActions(),
+              IconButton(
+                icon: Icon(
+                  _isFilterVisible ? Icons.close : Icons.filter_list,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isFilterVisible = !_isFilterVisible;
+                  });
+                },
+                tooltip: 'Filters',
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                onPressed: () => _loadProperties(refresh: true),
+                tooltip: 'Refresh',
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+                color: const Color(0xFF234E70),
+                onSelected: (value) {
+                  switch (value) {
+                    case 'requests':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
+                      );
+                      break;
+                    case 'profile':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+                      );
+                      break;
+                    case 'logout':
+                      _handleLogout();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'requests',
+                    child: Text('My Requests', style: TextStyle(color: Colors.white)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'profile',
+                    child: Text('Profile', style: TextStyle(color: Colors.white)),
+                  ),
+                  const PopupMenuItem(
+                    value: 'logout',
+                    child: Text('Logout', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
             ],
           ),
-          SizedBox(height: isMobile ? 12 : 16),
+          const SizedBox(height: 12),
           _buildSearchBar(),
         ],
       ),
     );
   }
 
-  List<Widget> _buildDesktopActions() {
-    return [
-      IconButton(
-        icon: Icon(
-          _isFilterVisible ? Icons.close : Icons.filter_list,
-          color: Colors.white,
-          size: 24,
-        ),
-        onPressed: () {
-          setState(() {
-            _isFilterVisible = !_isFilterVisible;
-          });
-        },
-        tooltip: 'Filters',
-      ),
-      IconButton(
-        icon: const Icon(Icons.favorite, color: Colors.white, size: 24),
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const FavoritesScreen()),
-        ),
-        tooltip: 'Favorites',
-      ),
-      IconButton(
-        icon: const Icon(Icons.map, color: Colors.white, size: 24),
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const MapScreen()),
-        ),
-        tooltip: 'Map View',
-      ),
-      IconButton(
-        icon: const Icon(Icons.calendar_today, color: Colors.white, size: 24),
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
-        ),
-        tooltip: 'My Requests',
-      ),
-      IconButton(
-        icon: const Icon(Icons.person, color: Colors.white, size: 24),
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const UserProfileScreen()),
-        ),
-        tooltip: 'Profile',
-      ),
-      IconButton(
-        icon: const Icon(Icons.refresh, color: Colors.white, size: 24),
-        onPressed: () => _loadProperties(refresh: true),
-        tooltip: 'Refresh',
-      ),
-      IconButton(
-        icon: const Icon(Icons.logout, color: Colors.white, size: 24),
-        onPressed: _handleLogout,
-        tooltip: 'Logout',
-      ),
-    ];
-  }
-
-  List<Widget> _buildMobileActions() {
-    return [
-      IconButton(
-        icon: Icon(
-          _isFilterVisible ? Icons.close : Icons.filter_list,
-          color: Colors.white,
-          size: 20,
-        ),
-        onPressed: () {
-          setState(() {
-            _isFilterVisible = !_isFilterVisible;
-          });
-        },
-        tooltip: 'Filters',
-      ),
-      IconButton(
-        icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
-        onPressed: () => _loadProperties(refresh: true),
-        tooltip: 'Refresh',
-      ),
-      PopupMenuButton<String>(
-        icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
-        color: const Color(0xFF234E70),
-        onSelected: (value) {
-          switch (value) {
-            case 'requests':
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
-              );
-              break;
-            case 'profile':
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const UserProfileScreen()),
-              );
-              break;
-            case 'logout':
-              _handleLogout();
-              break;
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'requests',
-            child: Text('My Requests', style: TextStyle(color: Colors.white)),
-          ),
-          const PopupMenuItem(
-            value: 'profile',
-            child: Text('Profile', style: TextStyle(color: Colors.white)),
-          ),
-          const PopupMenuItem(
-            value: 'logout',
-            child: Text('Logout', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    ];
-  }
-
   Widget _buildSearchBar() {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(isMobile ? 25 : 30),
+        borderRadius: BorderRadius.circular(25),
         border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
       child: TextField(
         controller: _searchController,
-        style: TextStyle(
+        style: const TextStyle(
           color: Colors.white,
-          fontSize: isMobile ? 14 : 16,
+          fontSize: 14,
         ),
         decoration: InputDecoration(
           hintText: 'Search by location, property type...',
           hintStyle: TextStyle(
             color: Colors.white.withOpacity(0.5),
-            fontSize: isMobile ? 14 : 16,
+            fontSize: 14,
           ),
           border: InputBorder.none,
           icon: Icon(
             Icons.search,
             color: Colors.white.withOpacity(0.5),
-            size: isMobile ? 20 : 24,
+            size: 20,
           ),
         ),
         onChanged: _performSearch,
@@ -681,7 +529,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   Widget _buildFilterPanel() {
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
@@ -695,11 +543,11 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
+              const Text(
                 'Filters',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isMobile ? 16 : 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -713,43 +561,11 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ],
           ),
           const SizedBox(height: 16),
-
-          // Location filters
-          if (isDesktop)
-            Row(
-              children: [
-                Expanded(
-                  child: _buildLocationFilter('City', _city, (value) {
-                    setState(() => _city = value);
-                  }),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildLocationFilter('Region', _region, (value) {
-                    setState(() => _region = value);
-                  }),
-                ),
-              ],
-            )
-          else
-            Column(
-              children: [
-                _buildLocationFilter('City', _city, (value) {
-                  setState(() => _city = value);
-                }),
-                const SizedBox(height: 16),
-                _buildLocationFilter('Region', _region, (value) {
-                  setState(() => _region = value);
-                }),
-              ],
-            ),
-          const SizedBox(height: 16),
-
-          Text(
+          const Text(
             'Price Range',
             style: TextStyle(
               color: Colors.white,
-              fontSize: isMobile ? 14 : 16,
+              fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -768,43 +584,28 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               });
             },
           ),
-          const SizedBox(height: 16),
-
-          if (isDesktop)
-            Row(
-              children: [
-                Expanded(child: _buildBedroomDropdown()),
-                const SizedBox(width: 16),
-                Expanded(child: _buildMaxBedroomDropdown()),
-              ],
-            )
-          else
-            Column(
-              children: [
-                _buildBedroomDropdown(),
-                const SizedBox(height: 16),
-                _buildMaxBedroomDropdown(),
-              ],
-            ),
-
           const SizedBox(height: 20),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _applyFilters,
+              onPressed: () {
+                setState(() {
+                  _isFilterVisible = false;
+                });
+                _loadProperties(refresh: true);
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white.withOpacity(0.2),
-                padding: EdgeInsets.symmetric(vertical: isMobile ? 12 : 16),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
                 ),
               ),
-              child: Text(
+              child: const Text(
                 'Apply Filters',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isMobile ? 14 : 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -815,133 +616,20 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget _buildLocationFilter(String label, String value, Function(String) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: isMobile ? 12 : 14,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          initialValue: value,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isMobile ? 14 : 16,
-          ),
-          decoration: InputDecoration(
-            hintText: 'Enter $label',
-            hintStyle: TextStyle(
-              color: Colors.white.withOpacity(0.5),
-              fontSize: isMobile ? 14 : 16,
-            ),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.1),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.4)),
-            ),
-          ),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBedroomDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Min Bedrooms',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isMobile ? 14 : 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        DropdownButton<int>(
-          value: _minBedrooms,
-          isExpanded: true,
-          dropdownColor: const Color(0xFF234E70),
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isMobile ? 14 : 16,
-          ),
-          items: [0, 1, 2, 3, 4, 5]
-              .map((int value) {
-            return DropdownMenuItem<int>(
-              value: value,
-              child: Text(value == 0 ? 'Any' : value.toString()),
-            );
-          }).toList(),
-          onChanged: (int? value) {
-            if (value != null) {
-              setState(() {
-                _minBedrooms = value;
-              });
-            }
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMaxBedroomDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Max Bedrooms',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isMobile ? 14 : 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        DropdownButton<int>(
-          value: _maxBedrooms,
-          isExpanded: true,
-          dropdownColor: const Color(0xFF234E70),
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isMobile ? 14 : 16,
-          ),
-          items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-              .map((int value) {
-            return DropdownMenuItem<int>(
-              value: value,
-              child: Text(value == 10 ? 'Any' : value.toString()),
-            );
-          }).toList(),
-          onChanged: (int? value) {
-            if (value != null) {
-              setState(() {
-                _maxBedrooms = value;
-              });
-            }
-          },
-        ),
-      ],
-    );
-  }
-
   Widget _buildBody() {
     if (_isLoadingProperties && _allProperties.isEmpty) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Loading properties...',
+              style: TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
       );
     }
 
@@ -985,34 +673,12 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   }
 
   Widget _buildPropertyList() {
-    if (isDesktop || isTablet) {
-      return Padding(
-        padding: EdgeInsets.all(horizontalPadding),
-        child: GridView.builder(
-          controller: _scrollController,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            childAspectRatio: cardAspectRatio,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-          ),
-          itemCount: _filteredProperties.length + (_isLoadingMore ? 1 : 0),
-          itemBuilder: (context, index) {
-            if (index < _filteredProperties.length) {
-              final property = _filteredProperties[index];
-              return _buildPropertyCard(property);
-            } else {
-              return const Center(
-                child: CircularProgressIndicator(color: Colors.white),
-              );
-            }
-          },
-        ),
-      );
-    } else {
-      return ListView.builder(
+    return RefreshIndicator(
+      onRefresh: () => _loadProperties(refresh: true),
+      color: Colors.white,
+      child: ListView.builder(
         controller: _scrollController,
-        padding: EdgeInsets.all(horizontalPadding),
+        padding: const EdgeInsets.all(16),
         itemCount: _filteredProperties.length + (_isLoadingMore ? 1 : 0),
         itemBuilder: (context, index) {
           if (index < _filteredProperties.length) {
@@ -1030,8 +696,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             );
           }
         },
-      );
-    }
+      ),
+    );
   }
 
   Widget _buildPropertyCard(Map<String, dynamic> property) {
@@ -1055,7 +721,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             Stack(
               children: [
                 Container(
-                  height: isDesktop ? 180 : (isTablet ? 160 : 200),
+                  height: 200,
                   decoration: BoxDecoration(
                     color: Colors.grey[300],
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -1086,116 +752,114 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                   ),
               ],
             ),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.all(isMobile ? 12 : 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            property['houseType'] ?? 'Property',
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          property['houseType'] ?? 'Property',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (property['isHighFloor'] == true)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'High Floor',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: isMobile ? 16 : 18,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        color: Colors.white.withOpacity(0.8),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '\$${property['price'] ?? 0}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        if (property['isHighFloor'] == true)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              'High Floor',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isMobile ? 10 : 12,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          color: Colors.white.withOpacity(0.8),
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            '${property['city'] ?? ''}, ${property['region'] ?? ''}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: isMobile ? 12 : 14,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          if (property['pricePerM2'] != null && property['pricePerM2'] > 0)
                             Text(
-                              '\$${property['price'] ?? 0}',
+                              '\$${property['pricePerM2']} per m²',
                               style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isMobile ? 18 : 20,
-                                fontWeight: FontWeight.bold,
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 10,
                               ),
                             ),
-                            if (property['pricePerM2'] != null && property['pricePerM2'] > 0)
-                              Text(
-                                '\$${property['pricePerM2']} per m²',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.7),
-                                  fontSize: isMobile ? 10 : 12,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildPropertyFeature(
-                          Icons.straighten,
-                          '${property['size'] ?? 0} m²',
-                        ),
-                        _buildPropertyFeature(
-                          Icons.king_bed,
-                          '${property['bedrooms'] ?? 0}',
-                        ),
-                        _buildPropertyFeature(
-                          Icons.bathtub,
-                          '${property['bathrooms'] ?? 0}',
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildPropertyFeature(
+                        Icons.straighten,
+                        '${property['size'] ?? 0} m²',
+                      ),
+                      _buildPropertyFeature(
+                        Icons.king_bed,
+                        '${property['bedrooms'] ?? 0}',
+                      ),
+                      _buildPropertyFeature(
+                        Icons.bathtub,
+                        '${property['bathrooms'] ?? 0}',
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -1205,7 +869,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   }
 
   Widget _buildPropertyImage(String? imagePath) {
-    if (!ApiConfig.isValidImagePath(imagePath)) {
+    if (imagePath == null || imagePath.isEmpty || !ApiConfig.isValidImagePath(imagePath)) {
       return Container(
         color: Colors.grey[300],
         child: const Center(
@@ -1245,14 +909,14 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         Icon(
           icon,
           color: Colors.white.withOpacity(0.8),
-          size: isMobile ? 14 : 16,
+          size: 14,
         ),
         const SizedBox(height: 4),
         Text(
           text,
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
-            fontSize: isMobile ? 11 : 14,
+            fontSize: 11,
           ),
         ),
       ],
@@ -1310,62 +974,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget? _buildFloatingActionButtons() {
-    if (_selectedForComparison.isEmpty) return null;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (isMobile) ...[
-          FloatingActionButton(
-            onPressed: _clearSelection,
-            backgroundColor: Colors.grey.withOpacity(0.8),
-            heroTag: "clear",
-            mini: true,
-            child: const Icon(Icons.clear, color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton.extended(
-            onPressed: _startComparison,
-            backgroundColor: Colors.blue,
-            heroTag: "compare",
-            label: Text(
-              'Compare (${_selectedForComparison.length})',
-              style: const TextStyle(color: Colors.white),
-            ),
-            icon: const Icon(Icons.compare_arrows, color: Colors.white),
-          ),
-        ] else ...[
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FloatingActionButton(
-                onPressed: _clearSelection,
-                backgroundColor: Colors.grey.withOpacity(0.8),
-                heroTag: "clear",
-                child: const Icon(Icons.clear, color: Colors.white),
-              ),
-              const SizedBox(width: 8),
-              FloatingActionButton.extended(
-                onPressed: _startComparison,
-                backgroundColor: Colors.blue,
-                heroTag: "compare",
-                label: Text(
-                  'Compare (${_selectedForComparison.length})',
-                  style: const TextStyle(color: Colors.white),
-                ),
-                icon: const Icon(Icons.compare_arrows, color: Colors.white),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
   Widget? _buildBottomNavigationBar() {
-    if (isDesktop) return null;
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),

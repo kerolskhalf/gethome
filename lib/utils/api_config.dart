@@ -1,4 +1,5 @@
-// lib/utils/api_config.dart
+// lib/utils/api_config.dart - Enhanced with debugging
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class ApiConfig {
@@ -33,9 +34,10 @@ class ApiConfig {
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
-  // FIXED: Image handling with correct ProductsImages path
+  // ENHANCED: Image handling with better debugging
   static String getImageUrl(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty) {
+      debugLog('Empty imagePath provided');
       return '';
     }
 
@@ -49,6 +51,7 @@ class ApiConfig {
 
     // Remove base URL if already present (avoid double URL)
     if (cleanPath.startsWith('http')) {
+      debugLog('Full URL already provided: $cleanPath');
       return cleanPath;
     }
 
@@ -61,7 +64,9 @@ class ApiConfig {
     }
 
     // Return the correct URL with ProductsImages path (matching backend)
-    return '$BASE_URL/ProductsImages/$cleanPath';
+    final fullUrl = '$BASE_URL/ProductsImages/$cleanPath';
+    debugLog('Generated image URL: $fullUrl');
+    return fullUrl;
   }
 
   // Helper method to check if image URL is valid
@@ -74,7 +79,11 @@ class ApiConfig {
     final validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
     final lowerPath = imagePath.toLowerCase();
 
-    return validExtensions.any((ext) => lowerPath.endsWith(ext));
+    final isValid = validExtensions.any((ext) => lowerPath.endsWith(ext));
+    if (!isValid) {
+      debugLog('Invalid image path: $imagePath');
+    }
+    return isValid;
   }
 
   // Common headers for JSON requests
@@ -118,12 +127,14 @@ class ApiConfig {
     return statusCode >= 200 && statusCode < 300;
   }
 
-  // Helper method to parse error response
+  // ENHANCED: Better error response parsing
   static String parseErrorResponse(String responseBody) {
     try {
       if (responseBody.isEmpty) {
         return 'Empty response from server';
       }
+
+      debugLog('Parsing error response: $responseBody');
 
       // Try to parse as JSON
       if (responseBody.trim().startsWith('{')) {
@@ -157,8 +168,29 @@ class ApiConfig {
         return responseBody;
       }
     } catch (e) {
+      debugLog('Error parsing response: $e');
       // If JSON parsing fails, return the original response
       return responseBody.isNotEmpty ? responseBody : 'Failed to parse error response';
+    }
+  }
+
+  // ENHANCED: Test API connectivity
+  static Future<bool> testApiConnectivity() async {
+    try {
+      debugLog('Testing API connectivity to: $BASE_URL');
+
+      final response = await http.get(
+        Uri.parse(allPropertiesUrl),
+        headers: headers,
+      ).timeout(const Duration(seconds: 10));
+
+      debugLog('API test response: ${response.statusCode}');
+      debugLog('API test body preview: ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}');
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugLog('API connectivity test failed: $e');
+      return false;
     }
   }
 
@@ -198,10 +230,11 @@ class ApiConfig {
     }
   }
 
-  // Debug logging (only in debug mode)
+  // ENHANCED: Debug logging with better formatting
   static void debugLog(String message) {
     assert(() {
-      print('[API_DEBUG] $message');
+      final timestamp = DateTime.now().toIso8601String();
+      print('🔧 [API_DEBUG $timestamp] $message');
       return true;
     }());
   }
