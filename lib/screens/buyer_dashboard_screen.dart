@@ -1,4 +1,4 @@
-// lib/screens/buyer_dashboard_screen.dart - IMPROVED UI VERSION
+// lib/screens/buyer_dashboard_screen.dart - ENHANCED WITH ADVANCED FILTERS
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -42,12 +42,28 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     'Smoha', 'Sporting', 'Stanley', 'Zamalek',
   ];
 
-  // Filter values
-  RangeValues _priceRange = const RangeValues(0, 1000000);
+  static const List<String> _propertyTypes = [
+    'Any', 'Apartment', 'House', 'Villa', 'Studio', 'Condo', 'Townhouse'
+  ];
+
+  static const List<String> _floorTypes = [
+    'Any Floor', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor',
+    'Fourth Floor', 'Fifth Floor', 'High Floor (6+)', 'Top Floor', 'Basement'
+  ];
+
+  // Enhanced filter values
+  RangeValues _priceRange = const RangeValues(0, 10000000);
+  RangeValues _sizeRange = const RangeValues(0, 1000);
   int _minBedrooms = 0;
   int _maxBedrooms = 10;
+  int _minBathrooms = 0;
+  int _maxBathrooms = 10;
+  int _minTotalRooms = 0;
+  int _maxTotalRooms = 20;
   String _selectedCity = 'Any';
   String _selectedRegion = 'Any';
+  String _selectedPropertyType = 'Any';
+  String _selectedFloorType = 'Any Floor';
   bool _isFilterVisible = false;
   final Set<String> _selectedForComparison = {};
   bool _isSelectionMode = false;
@@ -65,7 +81,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   // Pagination
   int _currentPage = 1;
-  int _pageSize = 10;
+  final int _pageSize = 20;
   int _totalCount = 0;
   bool _hasMoreData = true;
 
@@ -123,7 +139,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       if (_priceRange.start > 0) {
         queryParams['minPrice'] = _priceRange.start.toString();
       }
-      if (_priceRange.end < 1000000) {
+      if (_priceRange.end < 10000000) {
         queryParams['maxPrice'] = _priceRange.end.toString();
       }
       if (_minBedrooms > 0) {
@@ -140,12 +156,9 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         endpoint = ApiConfig.searchPropertiesUrl;
       } else {
         endpoint = ApiConfig.allPropertiesUrl;
-        queryParams.clear();
       }
 
-      final uri = queryParams.isEmpty
-          ? Uri.parse(endpoint)
-          : Uri.parse(endpoint).replace(queryParameters: queryParams);
+      final uri = Uri.parse(endpoint).replace(queryParameters: queryParams);
 
       final response = await http.get(uri, headers: ApiConfig.headers).timeout(const Duration(seconds: 10));
 
@@ -154,6 +167,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         List<Map<String, dynamic>> newProperties = [];
 
         if (hasFilters) {
+          // Handle search/filter response
           if (data is Map<String, dynamic> && data.containsKey('data')) {
             final dataList = data['data'] as List? ?? [];
             newProperties = dataList
@@ -166,28 +180,50 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             _hasMoreData = newProperties.length == pageSize && (_currentPage * pageSize) < _totalCount;
           }
         } else {
+          // Handle all properties response
           if (data is List) {
-            newProperties = data.map((item) => _safeMapConversion(item))
+            // Direct array response
+            final allPropertiesFromServer = data.map((item) => _safeMapConversion(item))
                 .where((item) => item.isNotEmpty).toList();
-          } else if (data is Map<String, dynamic> && data.containsKey('data')) {
-            final dataList = data['data'] as List;
-            newProperties = dataList.map((item) => _safeMapConversion(item))
-                .where((item) => item.isNotEmpty).toList();
-          }
 
-          _totalCount = newProperties.length;
-          final startIndex = (_currentPage - 1) * _pageSize;
+            _totalCount = allPropertiesFromServer.length;
 
-          if (_currentPage == 1) {
-            if (newProperties.length > _pageSize) {
-              newProperties = newProperties.sublist(0, _pageSize);
-              _hasMoreData = true;
+            // Calculate pagination manually for direct array response
+            final startIndex = (_currentPage - 1) * _pageSize;
+            final endIndex = startIndex + _pageSize;
+
+            if (startIndex < allPropertiesFromServer.length) {
+              newProperties = allPropertiesFromServer.sublist(
+                  startIndex,
+                  endIndex > allPropertiesFromServer.length ? allPropertiesFromServer.length : endIndex
+              );
+              _hasMoreData = endIndex < allPropertiesFromServer.length;
             } else {
+              newProperties = [];
               _hasMoreData = false;
             }
-          } else {
-            _hasMoreData = false;
-            newProperties = [];
+          } else if (data is Map<String, dynamic> && data.containsKey('data')) {
+            // Wrapped response
+            final dataList = data['data'] as List;
+            final allPropertiesFromServer = dataList.map((item) => _safeMapConversion(item))
+                .where((item) => item.isNotEmpty).toList();
+
+            _totalCount = data['totalCount'] ?? allPropertiesFromServer.length;
+
+            // Calculate pagination manually
+            final startIndex = (_currentPage - 1) * _pageSize;
+            final endIndex = startIndex + _pageSize;
+
+            if (startIndex < allPropertiesFromServer.length) {
+              newProperties = allPropertiesFromServer.sublist(
+                  startIndex,
+                  endIndex > allPropertiesFromServer.length ? allPropertiesFromServer.length : endIndex
+              );
+              _hasMoreData = endIndex < allPropertiesFromServer.length;
+            } else {
+              newProperties = [];
+              _hasMoreData = false;
+            }
           }
         }
 
@@ -321,11 +357,18 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
 
   void _resetFilters() {
     setState(() {
-      _priceRange = const RangeValues(0, 1000000);
+      _priceRange = const RangeValues(0, 10000000);
+      _sizeRange = const RangeValues(0, 1000);
       _minBedrooms = 0;
       _maxBedrooms = 10;
+      _minBathrooms = 0;
+      _maxBathrooms = 10;
+      _minTotalRooms = 0;
+      _maxTotalRooms = 20;
       _selectedCity = 'Any';
       _selectedRegion = 'Any';
+      _selectedPropertyType = 'Any';
+      _selectedFloorType = 'Any Floor';
       _searchQuery = '';
       _currentPage = 1;
       _isFilterVisible = false;
@@ -444,17 +487,31 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildModernHeader(),
-            if (_isFilterVisible) ...[
-              _buildFilterPanel(),
-              const SizedBox(height: 8),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1a237e),
+              Color(0xFF234E70),
+              Color(0xFF305F80),
             ],
-            Expanded(child: _buildBody()),
-          ],
+            stops: [0.2, 0.6, 0.9],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildModernHeader(),
+              if (_isFilterVisible)
+                Expanded(
+                  child: _buildAdvancedFilterPanel(),
+                )
+              else
+                Expanded(child: _buildBody()),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: _buildBottomNavigationBar(),
@@ -462,7 +519,6 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  // FIX: Modern header design inspired by the blue drawing
   Widget _buildModernHeader() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -534,7 +590,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               _buildHeaderIconButton(
                 icon: _isFilterVisible ? Icons.close : Icons.filter_list,
                 onPressed: () => setState(() => _isFilterVisible = !_isFilterVisible),
-                tooltip: 'Filters',
+                tooltip: 'Advanced Filters',
               ),
               const SizedBox(width: 8),
               _buildHeaderIconButton(
@@ -641,27 +697,21 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white.withOpacity(0.2),
         borderRadius: BorderRadius.circular(25),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: Colors.white.withOpacity(0.3)),
       ),
       child: TextField(
         controller: _searchController,
-        style: const TextStyle(color: Colors.black87, fontSize: 16),
+        style: const TextStyle(color: Colors.white, fontSize: 16),
         decoration: InputDecoration(
           hintText: 'Search by type, location, area...',
-          hintStyle: TextStyle(color: Colors.grey[600], fontSize: 16),
+          hintStyle: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 16),
           border: InputBorder.none,
-          icon: Icon(Icons.search, color: Colors.grey[600], size: 24),
+          icon: Icon(Icons.search, color: Colors.white.withOpacity(0.8), size: 24),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
-            icon: Icon(Icons.clear, color: Colors.grey[600]),
+            icon: Icon(Icons.clear, color: Colors.white.withOpacity(0.8)),
             onPressed: () {
               _searchController.clear();
               _performSearch('');
@@ -674,143 +724,321 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget _buildFilterPanel() {
+  Widget _buildAdvancedFilterPanel() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1a237e),
+            Color(0xFF234E70),
+          ],
+        ),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Filter Properties',
-                style: TextStyle(
-                  color: Color(0xFF234E70),
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Advanced Filters',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              TextButton(
-                onPressed: _resetFilters,
-                child: const Text(
-                  'Reset All',
-                  style: TextStyle(color: Colors.orange),
+                TextButton(
+                  onPressed: _resetFilters,
+                  child: const Text(
+                    'Reset All',
+                    style: TextStyle(color: Colors.orange),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Location filters
-          Row(
-            children: [
-              Expanded(
-                child: _buildDropdownFilter(
-                  'City',
-                  _selectedCity,
-                  _availableCities,
-                      (value) => setState(() => _selectedCity = value!),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildDropdownFilter(
-                  'Region',
-                  _selectedRegion,
-                  _availableRegions,
-                      (value) => setState(() => _selectedRegion = value!),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Price Range
-          const Text(
-            'Price Range',
-            style: TextStyle(
-              color: Color(0xFF234E70),
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+              ],
             ),
           ),
-          const SizedBox(height: 10),
-          RangeSlider(
-            values: _priceRange,
-            min: 0,
-            max: 1000000,
-            divisions: 100,
-            activeColor: const Color(0xFF4A90E2),
-            labels: RangeLabels(
-              '\$${_priceRange.start.toStringAsFixed(0)}',
-              '\$${_priceRange.end.toStringAsFixed(0)}',
-            ),
-            onChanged: (values) => setState(() => _priceRange = values),
-          ),
-          const SizedBox(height: 20),
 
-          // Bedrooms
-          Row(
-            children: [
-              Expanded(
-                child: _buildNumberFilter(
-                  'Min Bedrooms',
-                  _minBedrooms,
-                      (value) => setState(() {
-                    _minBedrooms = value;
-                    if (_minBedrooms > _maxBedrooms) _maxBedrooms = _minBedrooms;
-                  }),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildNumberFilter(
-                  'Max Bedrooms',
-                  _maxBedrooms,
-                      (value) => setState(() {
-                    _maxBedrooms = value;
-                    if (_maxBedrooms < _minBedrooms) _minBedrooms = _maxBedrooms;
-                  }),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
+          // Scrollable content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Location Section
+                  const Text(
+                    'Location',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBlueDropdownFilter(
+                          'City',
+                          _selectedCity,
+                          _availableCities,
+                              (value) => setState(() => _selectedCity = value!),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildBlueDropdownFilter(
+                          'Region',
+                          _selectedRegion,
+                          _availableRegions,
+                              (value) => setState(() => _selectedRegion = value!),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
 
-          // Apply button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _applyFilters,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4A90E2),
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                elevation: 2,
-              ),
-              child: const Text(
-                'Apply Filters',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+                  // Property Type Section
+                  const Text(
+                    'Property Type',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildBlueDropdownFilter(
+                    'House Type',
+                    _selectedPropertyType,
+                    _propertyTypes,
+                        (value) => setState(() => _selectedPropertyType = value!),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Price Range Section
+                  const Text(
+                    'Price Range (LE)',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  RangeSlider(
+                    values: _priceRange,
+                    min: 0,
+                    max: 10000000,
+                    divisions: 100,
+                    activeColor: Colors.white,
+                    inactiveColor: Colors.white.withOpacity(0.3),
+                    labels: RangeLabels(
+                      '${(_priceRange.start / 1000000).toStringAsFixed(1)}M LE',
+                      '${(_priceRange.end / 1000000).toStringAsFixed(1)}M LE',
+                    ),
+                    onChanged: (values) => setState(() => _priceRange = values),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '0 LE',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
+                      ),
+                      Text(
+                        '10.0M LE',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Size Range Section
+                  const Text(
+                    'Size Range (m²)',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  RangeSlider(
+                    values: _sizeRange,
+                    min: 0,
+                    max: 1000,
+                    divisions: 100,
+                    activeColor: Colors.white,
+                    inactiveColor: Colors.white.withOpacity(0.3),
+                    labels: RangeLabels(
+                      '${_sizeRange.start.toStringAsFixed(0)} m²',
+                      '${_sizeRange.end.toStringAsFixed(0)} m²',
+                    ),
+                    onChanged: (values) => setState(() => _sizeRange = values),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '0 m²',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
+                      ),
+                      Text(
+                        '1000 m²',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Rooms Section
+                  const Text(
+                    'Rooms',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Min Bedrooms',
+                          _minBedrooms,
+                              (value) => setState(() {
+                            _minBedrooms = value;
+                            if (_minBedrooms > _maxBedrooms) _maxBedrooms = _minBedrooms;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Max Bedrooms',
+                          _maxBedrooms,
+                              (value) => setState(() {
+                            _maxBedrooms = value;
+                            if (_maxBedrooms < _minBedrooms) _minBedrooms = _maxBedrooms;
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Min Bathrooms',
+                          _minBathrooms,
+                              (value) => setState(() {
+                            _minBathrooms = value;
+                            if (_minBathrooms > _maxBathrooms) _maxBathrooms = _minBathrooms;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Max Bathrooms',
+                          _maxBathrooms,
+                              (value) => setState(() {
+                            _maxBathrooms = value;
+                            if (_maxBathrooms < _minBathrooms) _minBathrooms = _maxBathrooms;
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Min Total Rooms',
+                          _minTotalRooms,
+                              (value) => setState(() {
+                            _minTotalRooms = value;
+                            if (_minTotalRooms > _maxTotalRooms) _maxTotalRooms = _minTotalRooms;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildBlueNumberFilter(
+                          'Max Total Rooms',
+                          _maxTotalRooms,
+                              (value) => setState(() {
+                            _maxTotalRooms = value;
+                            if (_maxTotalRooms < _minTotalRooms) _minTotalRooms = _maxTotalRooms;
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Floor Type Section
+                  const Text(
+                    'Floor Type',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildBlueDropdownFilter(
+                    'Any Floor',
+                    _selectedFloorType,
+                    _floorTypes,
+                        (value) => setState(() => _selectedFloorType = value!),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Apply Filters button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _applyFilters,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.2),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        elevation: 0,
+                        side: BorderSide(color: Colors.white.withOpacity(0.3)),
+                      ),
+                      child: const Text(
+                        'Apply Filters',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -819,7 +1047,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget _buildDropdownFilter(
+  Widget _buildBlueDropdownFilter(
       String label,
       String value,
       List<String> items,
@@ -830,32 +1058,33 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFF234E70),
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.9),
             fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: Colors.white.withOpacity(0.3)),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: value,
               isExpanded: true,
-              style: const TextStyle(color: Colors.black87, fontSize: 14),
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              dropdownColor: const Color(0xFF234E70),
               items: items.map((String item) {
                 return DropdownMenuItem<String>(
                   value: item,
                   child: Text(
                     item,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(fontSize: 14, color: Colors.white),
                   ),
                 );
               }).toList(),
@@ -867,35 +1096,39 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget _buildNumberFilter(String label, int value, Function(int) onChanged) {
+  Widget _buildBlueNumberFilter(String label, int value, Function(int) onChanged) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFF234E70),
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.9),
             fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: Colors.white.withOpacity(0.3)),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<int>(
               value: value,
               isExpanded: true,
-              style: const TextStyle(color: Colors.black87, fontSize: 14),
-              items: List.generate(11, (index) => index).map((int value) {
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              dropdownColor: const Color(0xFF234E70),
+              items: List.generate(21, (index) => index).map((int value) {
                 return DropdownMenuItem<int>(
                   value: value,
-                  child: Text(value == 0 ? 'Any' : value.toString()),
+                  child: Text(
+                    value == 0 ? 'Any' : value.toString(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 );
               }).toList(),
               onChanged: (int? newValue) {
@@ -929,12 +1162,12 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: Color(0xFF4A90E2)),
+          CircularProgressIndicator(color: Colors.white),
           SizedBox(height: 16),
           Text(
             'Loading properties...',
             style: TextStyle(
-              color: Colors.grey,
+              color: Colors.white,
               fontSize: 16,
             ),
           ),
@@ -953,20 +1186,21 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
+                color: Colors.red.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.error_outline,
                 size: 64,
-                color: Colors.red[400],
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 16),
-            Text(
+            const Text(
               'Oops! Something went wrong',
               style: TextStyle(
-                color: Colors.grey[800],
+                color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -975,7 +1209,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             Text(
               _errorMessage!,
               style: TextStyle(
-                color: Colors.grey[600],
+                color: Colors.white.withOpacity(0.8),
                 fontSize: 14,
               ),
               textAlign: TextAlign.center,
@@ -984,7 +1218,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             ElevatedButton(
               onPressed: () => _loadProperties(refresh: true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4A90E2),
+                backgroundColor: Colors.white.withOpacity(0.2),
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
@@ -999,10 +1233,18 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   Widget _buildEmptyState() {
     final hasActiveFilters = _selectedCity != 'Any' ||
         _selectedRegion != 'Any' ||
+        _selectedPropertyType != 'Any' ||
+        _selectedFloorType != 'Any Floor' ||
         _priceRange.start > 0 ||
-        _priceRange.end < 1000000 ||
+        _priceRange.end < 10000000 ||
+        _sizeRange.start > 0 ||
+        _sizeRange.end < 1000 ||
         _minBedrooms > 0 ||
         _maxBedrooms < 10 ||
+        _minBathrooms > 0 ||
+        _maxBathrooms < 10 ||
+        _minTotalRooms > 0 ||
+        _maxTotalRooms < 20 ||
         _searchQuery.isNotEmpty;
 
     return Center(
@@ -1014,20 +1256,21 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.white.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.3)),
               ),
               child: Icon(
                 hasActiveFilters ? Icons.filter_list_off : Icons.home_outlined,
                 size: 64,
-                color: Colors.grey[400],
+                color: Colors.white.withOpacity(0.8),
               ),
             ),
             const SizedBox(height: 16),
             Text(
               hasActiveFilters ? 'No properties match your filters' : 'No properties available',
-              style: TextStyle(
-                color: Colors.grey[800],
+              style: const TextStyle(
+                color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -1038,7 +1281,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                   ? 'Try adjusting your filters to see more results'
                   : 'Check back later for new listings',
               style: TextStyle(
-                color: Colors.grey[600],
+                color: Colors.white.withOpacity(0.8),
                 fontSize: 14,
               ),
               textAlign: TextAlign.center,
@@ -1048,7 +1291,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
               ElevatedButton(
                 onPressed: _resetFilters,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
+                  backgroundColor: Colors.orange.withOpacity(0.3),
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 ),
@@ -1063,7 +1306,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   Widget _buildPropertyList() {
     return RefreshIndicator(
       onRefresh: () => _loadProperties(refresh: true),
-      color: const Color(0xFF4A90E2),
+      color: Colors.white,
       child: ListView.builder(
         controller: _scrollController,
         padding: const EdgeInsets.all(20),
@@ -1073,13 +1316,25 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             final property = _properties[index];
             return Padding(
               padding: const EdgeInsets.only(bottom: 20),
-              child: _buildModernPropertyCard(property),
+              child: _buildBluePropertyCard(property),
             );
           } else {
-            return const Padding(
-              padding: EdgeInsets.all(16.0),
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
               child: Center(
-                child: CircularProgressIndicator(color: Color(0xFF4A90E2)),
+                child: Column(
+                  children: [
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Loading more properties...',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }
@@ -1088,8 +1343,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  // FIX: Modern property card design inspired by the blue drawing
-  Widget _buildModernPropertyCard(Map<String, dynamic> property) {
+  Widget _buildBluePropertyCard(Map<String, dynamic> property) {
     final propertyId = property['id'];
     final isSelected = _selectedForComparison.contains(propertyId.toString());
 
@@ -1098,15 +1352,22 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       onLongPress: () => _handlePropertyLongPress(property),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withOpacity(0.15),
+              Colors.white.withOpacity(0.1),
+            ],
+          ),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF4A90E2) : Colors.grey[200]!,
+            color: isSelected ? Colors.white : Colors.white.withOpacity(0.3),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withOpacity(0.2),
               blurRadius: 15,
               offset: const Offset(0, 5),
             ),
@@ -1157,13 +1418,13 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF4A90E2).withOpacity(0.9),
+                        color: Colors.white.withOpacity(0.9),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Text(
                         'High Floor',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: Color(0xFF234E70),
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1180,14 +1441,14 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                       width: 32,
                       height: 32,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF4A90E2),
+                        color: Colors.white,
                         shape: BoxShape.circle,
                       ),
                       child: Center(
                         child: Text(
                           '${_selectedForComparison.toList().indexOf(propertyId.toString()) + 1}',
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: Color(0xFF234E70),
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
@@ -1211,7 +1472,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                       Text(
                         '${property['price'] ?? 0} LE',
                         style: const TextStyle(
-                          color: Color(0xFF234E70),
+                          color: Colors.white,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1220,7 +1481,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                         Text(
                           '${property['pricePerM2']} LE/m²',
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: Colors.white.withOpacity(0.8),
                             fontSize: 12,
                           ),
                         ),
@@ -1233,7 +1494,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                     children: [
                       Icon(
                         Icons.location_on,
-                        color: Colors.grey[600],
+                        color: Colors.white.withOpacity(0.8),
                         size: 16,
                       ),
                       const SizedBox(width: 4),
@@ -1241,7 +1502,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                         child: Text(
                           '${_capitalizeFirst(property['city'] ?? '')}, ${_capitalizeFirst(property['region'] ?? '')}',
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: Colors.white.withOpacity(0.8),
                             fontSize: 14,
                           ),
                           maxLines: 1,
@@ -1256,20 +1517,20 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildModernFeature(
+                      _buildBlueFeature(
                         Icons.straighten,
                         '${property['size'] ?? 0} m²',
                       ),
-                      _buildModernFeature(
+                      _buildBlueFeature(
                         Icons.king_bed,
                         '${property['bedrooms'] ?? 0} Beds',
                       ),
-                      _buildModernFeature(
+                      _buildBlueFeature(
                         Icons.bathtub,
                         '${property['bathrooms'] ?? 0} Baths',
                       ),
                       if (property['totalRooms'] != null && property['totalRooms'] > 0)
-                        _buildModernFeature(
+                        _buildBlueFeature(
                           Icons.room,
                           '${property['totalRooms']} Total',
                         ),
@@ -1284,18 +1545,18 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
     );
   }
 
-  Widget _buildModernFeature(IconData icon, String text) {
+  Widget _buildBlueFeature(IconData icon, String text) {
     return Column(
       children: [
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: const Color(0xFF4A90E2).withOpacity(0.1),
+            color: Colors.white.withOpacity(0.2),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
             icon,
-            color: const Color(0xFF4A90E2),
+            color: Colors.white,
             size: 16,
           ),
         ),
@@ -1303,7 +1564,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         Text(
           text,
           style: TextStyle(
-            color: Colors.grey[700],
+            color: Colors.white.withOpacity(0.9),
             fontSize: 11,
             fontWeight: FontWeight.w500,
           ),
@@ -1320,9 +1581,9 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   Widget _buildPropertyImage(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty || !ApiConfig.isValidImagePath(imagePath)) {
       return Container(
-        color: Colors.grey[200],
+        color: Colors.white.withOpacity(0.1),
         child: Center(
-          child: Icon(Icons.home, size: 50, color: Colors.grey[400]),
+          child: Icon(Icons.home, size: 50, color: Colors.white.withOpacity(0.5)),
         ),
       );
     }
@@ -1335,17 +1596,17 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) return child;
         return Container(
-          color: Colors.grey[200],
+          color: Colors.white.withOpacity(0.1),
           child: const Center(
-            child: CircularProgressIndicator(color: Color(0xFF4A90E2)),
+            child: CircularProgressIndicator(color: Colors.white),
           ),
         );
       },
       errorBuilder: (context, error, stackTrace) {
         return Container(
-          color: Colors.grey[200],
+          color: Colors.white.withOpacity(0.1),
           child: Center(
-            child: Icon(Icons.broken_image, size: 50, color: Colors.grey[400]),
+            child: Icon(Icons.broken_image, size: 50, color: Colors.white.withOpacity(0.5)),
           ),
         );
       },
@@ -1358,7 +1619,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       children: [
         FloatingActionButton.extended(
           onPressed: _clearSelection,
-          backgroundColor: Colors.grey[600],
+          backgroundColor: Colors.white.withOpacity(0.2),
           heroTag: "clear",
           label: const Text('Clear', style: TextStyle(color: Colors.white)),
           icon: const Icon(Icons.clear, color: Colors.white),
@@ -1366,7 +1627,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
         const SizedBox(width: 8),
         FloatingActionButton.extended(
           onPressed: _startComparison,
-          backgroundColor: const Color(0xFF4A90E2),
+          backgroundColor: Colors.white.withOpacity(0.3),
           heroTag: "compare",
           label: Text(
             'Compare (${_selectedForComparison.length})',
@@ -1381,10 +1642,17 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
   Widget? _buildBottomNavigationBar() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF1a237e),
+            Color(0xFF234E70),
+          ],
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
@@ -1393,8 +1661,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
       child: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.transparent,
-        selectedItemColor: const Color(0xFF4A90E2),
-        unselectedItemColor: Colors.grey[600],
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white.withOpacity(0.6),
         elevation: 0,
         currentIndex: 0,
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
