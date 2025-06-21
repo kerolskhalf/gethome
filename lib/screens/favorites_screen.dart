@@ -1,4 +1,4 @@
-// lib/screens/favorites_screen.dart - FIXED VERSION
+// lib/screens/favorites_screen.dart - COMPLETE FIXED VERSION
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -57,25 +57,53 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
         // Handle different response formats
         if (data is List) {
-          // Direct array of favorites
-          for (var favorite in data) {
-            if (favorite['property'] != null) {
-              properties.add(_safeMapConversion(favorite['property']));
+          // Direct array of property data (favorites endpoint returns property data directly)
+          for (var item in data) {
+            final propertyData = _safeMapConversion(item);
+            if (propertyData.isNotEmpty) {
+              properties.add(propertyData);
             }
           }
         } else if (data is Map<String, dynamic>) {
           if (data.containsKey('data') && data['data'] is List) {
             // Wrapped response with data array
             final favorites = data['data'] as List;
-            for (var favorite in favorites) {
-              if (favorite['property'] != null) {
-                properties.add(_safeMapConversion(favorite['property']));
+            for (var item in favorites) {
+              // Check if it's a favorite object with nested property, or property data directly
+              Map<String, dynamic> propertyData;
+              if (item['property'] != null) {
+                // Nested property format
+                propertyData = _safeMapConversion(item['property']);
+              } else {
+                // Direct property format (current API format)
+                propertyData = _safeMapConversion(item);
+              }
+
+              if (propertyData.isNotEmpty) {
+                properties.add(propertyData);
               }
             }
           }
         }
 
         print('✅ Processed ${properties.length} favorite properties');
+
+        // Debug: Print first few properties
+        if (properties.isNotEmpty) {
+          print('📋 First property example: ${properties.first}');
+        } else {
+          print('⚠️ No properties were processed from the response');
+          print('📊 Raw data structure: ${data.runtimeType}');
+          if (data is Map) {
+            print('📊 Data keys: ${data.keys.toList()}');
+            if (data.containsKey('data')) {
+              print('📊 Data array length: ${(data['data'] as List).length}');
+              if ((data['data'] as List).isNotEmpty) {
+                print('📊 First data item: ${(data['data'] as List).first}');
+              }
+            }
+          }
+        }
 
         setState(() {
           _favoriteProperties = properties;
@@ -106,6 +134,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Map<String, dynamic> _safeMapConversion(dynamic item) {
     try {
       if (item is Map<String, dynamic>) {
+        // Debug log the item structure
+        print('🔍 Converting item with keys: ${item.keys.toList()}');
+
         return {
           'id': item['id'] ?? 0,
           'houseType': item['houseType']?.toString() ?? 'Property',
@@ -125,9 +156,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           'floor': _safeNumericConversion(item['floor'], 0),
         };
       }
+      print('⚠️ Item is not a valid Map: ${item.runtimeType}');
       return {};
     } catch (e) {
       print('❌ Error converting property: $e');
+      print('📊 Problematic item: $item');
       return {};
     }
   }
@@ -142,10 +175,47 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     return defaultValue;
   }
 
+  // Alternative method using toggle endpoint
+  Future<void> _toggleFavoriteAsRemove(int propertyId) async {
+    try {
+      final userId = UserSession.getCurrentUserId();
+
+      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/favorites/toggle').replace(
+        queryParameters: {
+          'userId': userId.toString(),
+          'propertyId': propertyId.toString(),
+        },
+      );
+
+      print('🔄 Using toggle endpoint to remove: $uri');
+
+      final response = await http.post(uri, headers: ApiConfig.headers);
+
+      print('📡 Toggle response: ${response.statusCode}');
+      print('📋 Toggle body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _favoriteProperties.removeWhere((property) => property['id'] == propertyId);
+        });
+        _showSuccessMessage('Removed from favorites');
+      } else {
+        _showErrorMessage('Failed to remove from favorites using toggle method');
+      }
+    } catch (e) {
+      print('❌ Error with toggle method: $e');
+      _showErrorMessage('Error with toggle method: $e');
+    }
+  }
+
   // FIX: Enhanced remove from favorites with proper API call
   Future<void> _removeFromFavorites(int propertyId) async {
     try {
       final userId = UserSession.getCurrentUserId();
+
+      print('🗑️ Attempting to remove favorite:');
+      print('   User ID: $userId');
+      print('   Property ID: $propertyId');
 
       // Use query parameters as per API documentation
       final uri = Uri.parse('${ApiConfig.BASE_URL}/api/favorites/remove').replace(
@@ -155,7 +225,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         },
       );
 
-      print('🗑️ Removing from favorites: $uri');
+      print('🗑️ Remove URL: $uri');
 
       final response = await http.delete(uri, headers: ApiConfig.headers);
 
@@ -167,15 +237,35 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           _favoriteProperties.removeWhere((property) => property['id'] == propertyId);
         });
         _showSuccessMessage('Removed from favorites');
+      } else if (response.statusCode == 404) {
+        // The favorite relationship doesn't exist in the database
+        // Try using the toggle endpoint as an alternative
+        print('⚠️ Favorite not found, trying toggle endpoint...');
+        await _toggleFavoriteAsRemove(propertyId);
       } else {
-        _showErrorMessage('Failed to remove from favorites');
+        String errorMessage = 'Failed to remove from favorites';
+        try {
+          final errorData = json.decode(response.body);
+          errorMessage = errorData['message'] ?? errorMessage;
+        } catch (e) {
+          errorMessage = 'Server error (${response.statusCode})';
+        }
+        _showErrorMessage(errorMessage);
       }
     } catch (e) {
+      print('❌ Error removing from favorites: $e');
       _showErrorMessage('Error removing from favorites: $e');
     }
   }
 
   void _showRemoveConfirmation(Map<String, dynamic> property) {
+    // Debug: Print the property data before showing confirmation
+    print('🔍 Property to remove:');
+    print('   ID: ${property['id']}');
+    print('   Type: ${property['houseType']}');
+    print('   Price: ${property['price']}');
+    print('   Full property data: $property');
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -186,7 +276,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           style: TextStyle(color: Colors.white),
         ),
         content: Text(
-          'Are you sure you want to remove "${property['houseType'] ?? 'this property'}" from your favorites?',
+          'Are you sure you want to remove "${property['houseType'] ?? 'this property'}" (ID: ${property['id']}) from your favorites?',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
