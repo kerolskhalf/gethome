@@ -1,4 +1,4 @@
-// lib/screens/property_details_screen.dart
+// lib/screens/property_details_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -30,16 +30,26 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   Future<void> _checkIfFavorite() async {
     try {
       final response = await http.get(
-        Uri.parse(ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())),
+        Uri.parse('${ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())}?page=1&pageSize=100'),
         headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final favorites = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        List<dynamic> favorites = [];
+
+        if (data is List) {
+          favorites = data;
+        } else if (data is Map<String, dynamic> && data.containsKey('data')) {
+          favorites = data['data'] ?? [];
+        }
 
         setState(() {
-          _isSaved = favorites.any((fav) => fav['propertyId'] == widget.property['id']);
+          _isSaved = favorites.any((fav) {
+            // Check both direct propertyId and nested property.id
+            return fav['propertyId'] == widget.property['id'] ||
+                (fav['property'] != null && fav['property']['id'] == widget.property['id']);
+          });
         });
       }
     } catch (e) {
@@ -47,22 +57,28 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     }
   }
 
+  // FIX: Updated favorites toggle with proper API format
   Future<void> _toggleFavorite() async {
     if (_isTogglingFavorite) return;
 
     setState(() => _isTogglingFavorite = true);
 
     try {
-      final requestBody = {
-        'userId': UserSession.getCurrentUserId(),
-        'propertyId': widget.property['id'],
-      };
+      // Use the toggle endpoint with query parameters
+      final uri = Uri.parse(ApiConfig.toggleFavoriteUrl).replace(
+        queryParameters: {
+          'userId': UserSession.getCurrentUserId().toString(),
+          'propertyId': widget.property['id'].toString(),
+        },
+      );
 
       final response = await http.post(
-        Uri.parse(ApiConfig.toggleFavoriteUrl),
+        uri,
         headers: ApiConfig.headers,
-        body: json.encode(requestBody),
       );
+
+      print('Favorites toggle response: ${response.statusCode}');
+      print('Favorites toggle body: ${response.body}');
 
       if (response.statusCode == 200) {
         setState(() {
@@ -122,7 +138,11 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     }
   }
 
+  // FIX: Updated viewing request with date/time selection
   Future<void> _createViewingRequest() async {
+    final selectedDateTime = await _showDateTimePicker();
+    if (selectedDateTime == null) return;
+
     final propertyId = widget.property['id'];
     final userId = UserSession.getCurrentUserId();
 
@@ -137,6 +157,8 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
       final requestBody = {
         'propertyId': propertyId,
         'userId': userId,
+        'requestedDateTime': selectedDateTime.toUtc().toIso8601String(),
+        'message': 'Viewing request for ${widget.property['houseType']} in ${widget.property['city']}',
       };
 
       final response = await http.post(
@@ -151,7 +173,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _showSuccessMessage(data['message'] ?? 'Viewing request created successfully');
+        _showSuccessMessage(data['message'] ?? 'Viewing request created successfully for ${_formatDateTime(selectedDateTime)}');
       } else if (response.statusCode == 400) {
         try {
           final errorData = json.decode(response.body);
@@ -168,6 +190,77 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         _showErrorMessage('Network error. Please try again.');
       }
     }
+  }
+
+  // FIX: Add date/time picker for viewing requests
+  Future<DateTime?> _showDateTimePicker() async {
+    final DateTime? selectedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+      helpText: 'Select viewing date',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF234E70),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedDate == null) return null;
+
+    if (!mounted) return null;
+
+    final TimeOfDay? selectedTime = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 10, minute: 0),
+      helpText: 'Select viewing time',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF234E70),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedTime == null) return null;
+
+    return DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+
+    final month = months[dateTime.month - 1];
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+
+    return '$month $day at $hour:$minute';
   }
 
   void _showContactDialog(Map<String, dynamic> contactData) {
@@ -564,7 +657,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                         children: [
                           Expanded(
                             child: _buildActionButton(
-                              'Request Viewing',
+                              'Schedule Viewing',
                               Icons.calendar_today,
                               _isCreatingViewingRequest ? null : _createViewingRequest,
                               isLoading: _isCreatingViewingRequest,

@@ -1,4 +1,4 @@
-// lib/utils/api_config.dart - Enhanced with debugging
+// lib/utils/api_config.dart - ENHANCED VERSION with all endpoints
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
@@ -22,19 +22,24 @@ class ApiConfig {
   static String deletePropertyUrl(int propertyId) => '$BASE_URL/api/properties/delete/$propertyId';
   static String propertyContactUrl(int propertyId) => '$BASE_URL/api/properties/$propertyId/contact';
 
-  // Viewing request endpoints
+  // FIX: Enhanced viewing request endpoints with date/time support
   static String get createViewingRequestUrl => '$BASE_URL/api/viewing-requests/create';
   static String updateViewingRequestUrl(int requestId) => '$BASE_URL/api/viewing-requests/update/$requestId';
+  static String rescheduleViewingRequestUrl(int requestId) => '$BASE_URL/api/viewing-requests/reschedule/$requestId';
+  static String cancelViewingRequestUrl(int requestId) => '$BASE_URL/api/viewing-requests/cancel/$requestId';
   static String userViewingRequestsUrl(int userId) => '$BASE_URL/api/viewing-requests/user/$userId';
   static String propertyViewingRequestsUrl(int propertyId) => '$BASE_URL/api/viewing-requests/property/$propertyId';
 
-  // Favorites endpoints
+  // FIX: Enhanced favorites endpoints with proper query parameter format
   static String get addFavoriteUrl => '$BASE_URL/api/favorites/add';
   static String get removeFavoriteUrl => '$BASE_URL/api/favorites/remove';
   static String get toggleFavoriteUrl => '$BASE_URL/api/favorites/toggle';
   static String userFavoritesUrl(int userId) => '$BASE_URL/api/favorites/user/$userId';
 
-  // ENHANCED: Image handling with better debugging
+  // AI Prediction endpoint
+  static const String AI_PREDICTION_URL = 'https://real-estate-api-production-49bc.up.railway.app/predict';
+
+  // ENHANCED: Image handling with better debugging and error handling
   static String getImageUrl(String? imagePath) {
     if (imagePath == null || imagePath.isEmpty) {
       debugLog('Empty imagePath provided');
@@ -194,6 +199,90 @@ class ApiConfig {
     }
   }
 
+  // FIX: Enhanced favorites API helper methods
+  static Future<http.Response> addToFavorites(int userId, int propertyId) async {
+    final uri = Uri.parse(addFavoriteUrl).replace(
+      queryParameters: {
+        'userId': userId.toString(),
+        'propertyId': propertyId.toString(),
+      },
+    );
+
+    return await http.post(uri, headers: headers);
+  }
+
+  static Future<http.Response> removeFromFavorites(int userId, int propertyId) async {
+    final uri = Uri.parse(removeFavoriteUrl).replace(
+      queryParameters: {
+        'userId': userId.toString(),
+        'propertyId': propertyId.toString(),
+      },
+    );
+
+    return await http.delete(uri, headers: headers);
+  }
+
+  static Future<http.Response> toggleFavorite(int userId, int propertyId) async {
+    final uri = Uri.parse(toggleFavoriteUrl).replace(
+      queryParameters: {
+        'userId': userId.toString(),
+        'propertyId': propertyId.toString(),
+      },
+    );
+
+    return await http.post(uri, headers: headers);
+  }
+
+  // FIX: Enhanced viewing request helper methods
+  static Future<http.Response> createViewingRequest({
+    required int userId,
+    required int propertyId,
+    required DateTime requestedDateTime,
+    String? message,
+  }) async {
+    final requestBody = {
+      'userId': userId,
+      'propertyId': propertyId,
+      'requestedDateTime': requestedDateTime.toUtc().toIso8601String(),
+      if (message != null) 'message': message,
+    };
+
+    return await http.post(
+      Uri.parse(createViewingRequestUrl),
+      headers: headers,
+      body: json.encode(requestBody),
+    );
+  }
+
+  static Future<http.Response> updateViewingRequestStatus(int requestId, String status) async {
+    return await http.put(
+      Uri.parse(updateViewingRequestUrl(requestId)),
+      headers: headers,
+      body: json.encode(status),
+    );
+  }
+
+  static Future<http.Response> rescheduleViewingRequest(int requestId, DateTime newDateTime) async {
+    final requestBody = {
+      'newDateTime': newDateTime.toUtc().toIso8601String(),
+    };
+
+    return await http.put(
+      Uri.parse(rescheduleViewingRequestUrl(requestId)),
+      headers: headers,
+      body: json.encode(requestBody),
+    );
+  }
+
+  // AI Prediction helper method
+  static Future<http.Response> predictPrice(Map<String, dynamic> propertyData) async {
+    return await http.post(
+      Uri.parse(AI_PREDICTION_URL),
+      headers: headers,
+      body: json.encode(propertyData),
+    );
+  }
+
   // Pagination helper
   static Map<String, String> buildPaginationParams({
     int page = 1,
@@ -210,6 +299,49 @@ class ApiConfig {
     }
 
     return params;
+  }
+
+  // Search helper with filters
+  static Future<http.Response> searchProperties({
+    int page = 1,
+    int pageSize = 10,
+    String? city,
+    String? region,
+    double? minPrice,
+    double? maxPrice,
+    int? minBedrooms,
+    int? maxBedrooms,
+    String? propertyType,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
+
+    if (city != null && city.isNotEmpty && city != 'Any') {
+      queryParams['city'] = city.toLowerCase();
+    }
+    if (region != null && region.isNotEmpty && region != 'Any') {
+      queryParams['region'] = region.toLowerCase();
+    }
+    if (minPrice != null && minPrice > 0) {
+      queryParams['minPrice'] = minPrice.toString();
+    }
+    if (maxPrice != null && maxPrice < 1000000) {
+      queryParams['maxPrice'] = maxPrice.toString();
+    }
+    if (minBedrooms != null && minBedrooms > 0) {
+      queryParams['minBedrooms'] = minBedrooms.toString();
+    }
+    if (maxBedrooms != null && maxBedrooms < 10) {
+      queryParams['maxBedrooms'] = maxBedrooms.toString();
+    }
+    if (propertyType != null && propertyType.isNotEmpty && propertyType != 'All') {
+      queryParams['propertyType'] = propertyType;
+    }
+
+    final uri = Uri.parse(searchPropertiesUrl).replace(queryParameters: queryParams);
+    return await http.get(uri, headers: headers);
   }
 
   // Image cache helper
@@ -237,5 +369,55 @@ class ApiConfig {
       print('🔧 [API_DEBUG $timestamp] $message');
       return true;
     }());
+  }
+
+  // Response validation helper
+  static bool isValidResponse(http.Response response) {
+    return response.statusCode >= 200 && response.statusCode < 300;
+  }
+
+  // Generic API call wrapper with error handling
+  static Future<Map<String, dynamic>?> makeApiCall(
+      String method,
+      String url, {
+        Map<String, dynamic>? body,
+        Map<String, String>? queryParams,
+      }) async {
+    try {
+      Uri uri = Uri.parse(url);
+      if (queryParams != null) {
+        uri = uri.replace(queryParameters: queryParams);
+      }
+
+      http.Response response;
+
+      switch (method.toUpperCase()) {
+        case 'GET':
+          response = await http.get(uri, headers: headers);
+          break;
+        case 'POST':
+          response = await http.post(uri, headers: headers, body: body != null ? json.encode(body) : null);
+          break;
+        case 'PUT':
+          response = await http.put(uri, headers: headers, body: body != null ? json.encode(body) : null);
+          break;
+        case 'DELETE':
+          response = await http.delete(uri, headers: headers);
+          break;
+        default:
+          throw Exception('Unsupported HTTP method: $method');
+      }
+
+      debugLog('API Call: $method $uri - Status: ${response.statusCode}');
+
+      if (isValidResponse(response)) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('API Error ${response.statusCode}: ${parseErrorResponse(response.body)}');
+      }
+    } catch (e) {
+      debugLog('API Call failed: $e');
+      rethrow;
+    }
   }
 }

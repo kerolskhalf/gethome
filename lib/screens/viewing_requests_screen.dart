@@ -1,4 +1,4 @@
-// lib/screens/viewing_requests_screen.dart
+// lib/screens/viewing_requests_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -31,41 +31,67 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     _loadViewingRequests();
   }
 
+  // FIX: Enhanced viewing requests loading with better error handling
   Future<void> _loadViewingRequests() async {
     setState(() => _isLoading = true);
 
     try {
       String endpoint;
+      Map<String, String> queryParams = {};
+
       if (widget.isSellerView && widget.propertyId != null) {
         // Get viewing requests for specific property (seller view)
-        endpoint = ApiConfig.propertyViewingRequestsUrl(widget.propertyId!);
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/property/${widget.propertyId}';
       } else {
         // Get all viewing requests for user (buyer view)
-        endpoint = ApiConfig.userViewingRequestsUrl(UserSession.getCurrentUserId());
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
       }
+
+      print('Loading viewing requests from: $endpoint');
 
       final response = await http.get(
         Uri.parse(endpoint),
         headers: ApiConfig.headers,
       );
 
+      print('Viewing requests response status: ${response.statusCode}');
+      print('Viewing requests response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        setState(() {
-          // FIX: Handle both direct data array and wrapped response
-          if (data is List) {
-            _viewingRequests = List<Map<String, dynamic>>.from(data);
+        List<Map<String, dynamic>> requests = [];
+
+        // Handle different response formats
+        if (data is List) {
+          requests = data.map((item) => Map<String, dynamic>.from(item)).toList();
+        } else if (data is Map<String, dynamic>) {
+          if (data.containsKey('data') && data['data'] is List) {
+            requests = (data['data'] as List).map((item) => Map<String, dynamic>.from(item)).toList();
           } else {
-            _viewingRequests = List<Map<String, dynamic>>.from(data['data'] ?? []);
+            // Single request wrapped in object
+            requests = [Map<String, dynamic>.from(data)];
           }
+        }
+
+        print('Parsed ${requests.length} viewing requests');
+
+        setState(() {
+          _viewingRequests = requests;
+          _errorMessage = null;
+        });
+      } else if (response.statusCode == 404) {
+        // No requests found - this is normal
+        setState(() {
+          _viewingRequests = [];
           _errorMessage = null;
         });
       } else {
         setState(() {
-          _errorMessage = 'Failed to load viewing requests';
+          _errorMessage = 'Failed to load viewing requests (${response.statusCode})';
         });
       }
     } catch (e) {
+      print('Error loading viewing requests: $e');
       setState(() {
         _errorMessage = 'Network error: $e';
       });
@@ -74,13 +100,17 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     }
   }
 
+  // FIX: Enhanced status update with better API handling
   Future<void> _updateRequestStatus(int requestId, String status) async {
     try {
       final response = await http.put(
-        Uri.parse(ApiConfig.updateViewingRequestUrl(requestId)),
+        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests/update/$requestId'),
         headers: ApiConfig.headers,
         body: json.encode(status),
       );
+
+      print('Update status response: ${response.statusCode}');
+      print('Update status body: ${response.body}');
 
       if (response.statusCode == 200) {
         _showSuccessMessage('Request $status successfully');
@@ -91,6 +121,92 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     } catch (e) {
       _showErrorMessage('Error updating request: $e');
     }
+  }
+
+  // FIX: Add reschedule functionality
+  Future<void> _rescheduleRequest(Map<String, dynamic> request) async {
+    final DateTime? newDateTime = await _showDateTimePicker();
+    if (newDateTime == null) return;
+
+    try {
+      final response = await http.put(
+        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests/reschedule/${request['id']}'),
+        headers: ApiConfig.headers,
+        body: json.encode({
+          'newDateTime': newDateTime.toUtc().toIso8601String(),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        _showSuccessMessage('Request rescheduled to ${_formatDateTime(newDateTime)}');
+        _loadViewingRequests();
+      } else {
+        _showErrorMessage('Failed to reschedule request');
+      }
+    } catch (e) {
+      _showErrorMessage('Error rescheduling request: $e');
+    }
+  }
+
+  // Add date/time picker for rescheduling
+  Future<DateTime?> _showDateTimePicker() async {
+    final DateTime? selectedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+      helpText: 'Select new viewing date',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF234E70),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedDate == null) return null;
+
+    if (!mounted) return null;
+
+    final TimeOfDay? selectedTime = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 10, minute: 0),
+      helpText: 'Select new viewing time',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF234E70),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedTime == null) return null;
+
+    return DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return DateFormat('MMM dd, yyyy - HH:mm').format(dateTime);
   }
 
   void _showSuccessMessage(String message) {
@@ -121,33 +237,44 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           widget.isSellerView ? 'Viewing Request Details' : 'Your Request',
           style: const TextStyle(color: Colors.white),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.isSellerView) ...[
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               _buildInfoRow('Request ID', request['id']?.toString() ?? 'N/A'),
-              _buildInfoRow('User ID', request['userId']?.toString() ?? 'N/A'),
-              if (request['user'] != null) ...[
-                _buildInfoRow('Buyer Name', request['user']['fullName'] ?? 'Unknown'),
-                _buildInfoRow('Contact', request['user']['phoneNumber'] ?? request['user']['email'] ?? 'N/A'),
+
+              if (widget.isSellerView) ...[
+                _buildInfoRow('User ID', request['userId']?.toString() ?? 'N/A'),
+                if (request['user'] != null) ...[
+                  _buildInfoRow('Buyer Name', request['user']['fullName'] ?? 'Unknown'),
+                  _buildInfoRow('Contact', request['user']['phoneNumber'] ?? request['user']['email'] ?? 'N/A'),
+                ],
+              ] else ...[
+                _buildInfoRow('Property ID', request['propertyId']?.toString() ?? 'N/A'),
+                if (request['property'] != null) ...[
+                  _buildInfoRow('Property Type', request['property']['houseType'] ?? 'Property'),
+                  _buildInfoRow('Location', '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}'),
+                  _buildInfoRow('Price', '\$${request['property']['price'] ?? 0}'),
+                ],
               ],
-            ] else ...[
-              _buildInfoRow('Request ID', request['id']?.toString() ?? 'N/A'),
-              _buildInfoRow('Property ID', request['propertyId']?.toString() ?? 'N/A'),
-              if (request['property'] != null) ...[
-                _buildInfoRow('Property Type', request['property']['houseType'] ?? 'Property'),
-                _buildInfoRow('Location', '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}'),
-                _buildInfoRow('Price', '\$${request['property']['price'] ?? 0}'),
-              ],
+
+              _buildInfoRow('Status', _getStatusText(request['status'])),
+
+              // FIX: Enhanced date/time display
+              if (request['requestedDateTime'] != null)
+                _buildInfoRow('Requested Date & Time',
+                    _formatDateTime(DateTime.parse(request['requestedDateTime']))
+                )
+              else if (request['requestDate'] != null)
+                _buildInfoRow('Request Date',
+                    _formatDateTime(DateTime.parse(request['requestDate']))
+                ),
+
+              if (request['message'] != null)
+                _buildInfoRow('Message', request['message']),
             ],
-            _buildInfoRow('Status', _getStatusText(request['status'])),
-            _buildInfoRow('Request Date',
-                request['requestDate'] != null
-                    ? DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.parse(request['requestDate']))
-                    : 'N/A'
-            ),
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -165,17 +292,24 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '$label: ',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontWeight: FontWeight.bold,
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label: ',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -183,20 +317,28 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     );
   }
 
+  // FIX: Enhanced status text handling
   String _getStatusText(dynamic status) {
-    // FIX: Handle backend Status enum properly
-    // Backend uses Status enum with Available = 0, NotAvailable = 1
-    if (status == 0 || status == 'Available') return 'Pending';
-    if (status == 1 || status == 'NotAvailable') return 'Approved';
+    if (status == null) return 'Unknown';
 
-    // Handle string statuses for better compatibility
+    // Handle numeric status values
+    if (status is int) {
+      switch (status) {
+        case 0: return 'Pending';
+        case 1: return 'Approved';
+        case 2: return 'Rejected';
+        case 3: return 'Cancelled';
+        case 4: return 'Completed';
+        default: return 'Unknown';
+      }
+    }
+
+    // Handle string status values
     if (status is String) {
       switch (status.toLowerCase()) {
         case 'pending':
-        case 'available':
           return 'Pending';
         case 'approved':
-        case 'notavailable':
           return 'Approved';
         case 'rejected':
           return 'Rejected';
@@ -208,7 +350,8 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           return status;
       }
     }
-    return 'Unknown';
+
+    return status.toString();
   }
 
   Color _getStatusColor(dynamic status) {
@@ -222,6 +365,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         return Colors.orange;
       case 'completed':
         return Colors.blue;
+      case 'pending':
       default:
         return Colors.yellow;
     }
@@ -274,15 +418,27 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              widget.isSellerView
-                  ? 'Viewing Requests'
-                  : 'My Viewing Requests',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.isSellerView
+                      ? 'Viewing Requests'
+                      : 'My Viewing Requests',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '${_viewingRequests.length} ${_viewingRequests.length == 1 ? 'request' : 'requests'}',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
             ),
           ),
           IconButton(
@@ -297,7 +453,17 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Loading viewing requests...',
+              style: TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
       );
     }
 
@@ -378,13 +544,20 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   }
 
   Widget _buildRequestsList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: _viewingRequests.length,
-      itemBuilder: (context, index) {
-        final request = _viewingRequests[index];
-        return _buildRequestCard(request);
-      },
+    return RefreshIndicator(
+      onRefresh: _loadViewingRequests,
+      color: Colors.white,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(20),
+        itemCount: _viewingRequests.length,
+        itemBuilder: (context, index) {
+          final request = _viewingRequests[index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _buildRequestCard(request),
+          );
+        },
+      ),
     );
   }
 
@@ -394,7 +567,6 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     final statusColor = _getStatusColor(status);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(15),
@@ -485,61 +657,113 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
               ],
 
               const SizedBox(height: 8),
-              if (request['requestDate'] != null)
-                Row(
-                  children: [
-                    Icon(
-                      Icons.schedule,
-                      color: Colors.white.withOpacity(0.7),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      DateFormat('MMM dd, yyyy - HH:mm').format(
-                          DateTime.parse(request['requestDate'])
-                      ),
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
 
-              // FIX: Show action buttons for seller view with pending status
-              if (widget.isSellerView && statusText.toLowerCase() == 'pending') ...[
+              // FIX: Enhanced date/time display
+              Row(
+                children: [
+                  Icon(
+                    Icons.schedule,
+                    color: Colors.white.withOpacity(0.7),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (request['requestedDateTime'] != null)
+                          Text(
+                            'Requested: ${_formatDateTime(DateTime.parse(request['requestedDateTime']))}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          )
+                        else if (request['requestDate'] != null)
+                          Text(
+                            'Created: ${_formatDateTime(DateTime.parse(request['requestDate']))}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 14,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              // Action buttons based on status and user type
+              if (statusText.toLowerCase() == 'pending') ...[
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _updateRequestStatus(request['id'], 'approved'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.withOpacity(0.2),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                if (widget.isSellerView) ...[
+                  // Seller actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _updateRequestStatus(request['id'], 'approved'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.withOpacity(0.2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
+                          icon: const Icon(Icons.check, color: Colors.white, size: 16),
+                          label: const Text('Approve', style: TextStyle(color: Colors.white)),
                         ),
-                        icon: const Icon(Icons.check, color: Colors.white, size: 16),
-                        label: const Text('Approve', style: TextStyle(color: Colors.white)),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _updateRequestStatus(request['id'], 'rejected'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.withOpacity(0.2),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _updateRequestStatus(request['id'], 'rejected'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.withOpacity(0.2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
+                          icon: const Icon(Icons.close, color: Colors.white, size: 16),
+                          label: const Text('Reject', style: TextStyle(color: Colors.white)),
                         ),
-                        icon: const Icon(Icons.close, color: Colors.white, size: 16),
-                        label: const Text('Reject', style: TextStyle(color: Colors.white)),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ] else ...[
+                  // Buyer actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _rescheduleRequest(request),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.withOpacity(0.2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          icon: const Icon(Icons.schedule, color: Colors.white, size: 16),
+                          label: const Text('Reschedule', style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _updateRequestStatus(request['id'], 'cancelled'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.withOpacity(0.2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          icon: const Icon(Icons.cancel, color: Colors.white, size: 16),
+                          label: const Text('Cancel', style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ],
           ),

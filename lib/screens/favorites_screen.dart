@@ -1,4 +1,4 @@
-// lib/screens/favorites_screen.dart
+// lib/screens/favorites_screen.dart - ENHANCED VERSION
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -27,85 +27,150 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     _loadFavoriteProperties();
   }
 
+  // FIX: Enhanced favorites loading with better error handling
   Future<void> _loadFavoriteProperties() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
+      final userId = UserSession.getCurrentUserId();
+      if (userId <= 0) {
+        setState(() {
+          _errorMessage = 'Please log in to view favorites';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      print('Loading favorites for user: $userId');
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())}?page=1&pageSize=50'),
+        Uri.parse('${ApiConfig.userFavoritesUrl(userId)}?page=1&pageSize=100'),
         headers: ApiConfig.headers,
-      );
+      ).timeout(const Duration(seconds: 10));
+
+      print('Favorites response status: ${response.statusCode}');
+      print('Favorites response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        List<Map<String, dynamic>> properties = [];
 
         // Handle different response formats
-        List<Map<String, dynamic>> favorites;
         if (data is List) {
-          favorites = List<Map<String, dynamic>>.from(data);
-        } else {
-          favorites = List<Map<String, dynamic>>.from(data['data'] ?? []);
-        }
-
-        // Extract property information from favorites
-        List<Map<String, dynamic>> properties = [];
-        for (var favorite in favorites) {
-          if (favorite['property'] != null) {
-            properties.add(Map<String, dynamic>.from(favorite['property']));
+          // Direct array of favorites
+          for (var favorite in data) {
+            if (favorite['property'] != null) {
+              properties.add(_safeMapConversion(favorite['property']));
+            }
+          }
+        } else if (data is Map<String, dynamic>) {
+          if (data.containsKey('data') && data['data'] is List) {
+            // Wrapped response with data array
+            final favorites = data['data'] as List;
+            for (var favorite in favorites) {
+              if (favorite['property'] != null) {
+                properties.add(_safeMapConversion(favorite['property']));
+              }
+            }
           }
         }
+
+        print('Processed ${properties.length} favorite properties');
 
         setState(() {
           _favoriteProperties = properties;
           _errorMessage = null;
         });
+      } else if (response.statusCode == 404) {
+        // No favorites found - this is normal
+        setState(() {
+          _favoriteProperties = [];
+          _errorMessage = null;
+        });
       } else {
         setState(() {
-          _errorMessage = 'Failed to load favorite properties';
+          _errorMessage = 'Failed to load favorites (${response.statusCode})';
         });
       }
     } catch (e) {
+      print('Error loading favorites: $e');
       setState(() {
-        _errorMessage = 'Network error: $e';
+        _errorMessage = 'Network error: ${e.toString()}';
       });
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
+  // Helper method to safely convert property data
+  Map<String, dynamic> _safeMapConversion(dynamic item) {
+    try {
+      if (item is Map<String, dynamic>) {
+        return {
+          'id': item['id'] ?? 0,
+          'houseType': item['houseType']?.toString() ?? 'Property',
+          'city': item['city']?.toString() ?? '',
+          'region': item['region']?.toString() ?? '',
+          'price': _safeNumericConversion(item['price'], 0),
+          'size': _safeNumericConversion(item['size'], 0),
+          'bedrooms': _safeNumericConversion(item['bedrooms'], 0),
+          'bathrooms': _safeNumericConversion(item['bathrooms'], 0),
+          'imagePath': item['imagePath']?.toString() ?? '',
+          'isHighFloor': item['isHighFloor'] == true,
+          'pricePerM2': _safeNumericConversion(item['pricePerM2'], 0),
+          'status': item['status'] ?? 0,
+          'totalRooms': _safeNumericConversion(item['totalRooms'], 0),
+          'userId': _safeNumericConversion(item['userId'], 0),
+          'isFurnished': item['isFurnished'] == true,
+          'floor': _safeNumericConversion(item['floor'], 0),
+        };
+      }
+      return {};
+    } catch (e) {
+      print('Error converting property: $e');
+      return {};
+    }
+  }
+
+  dynamic _safeNumericConversion(dynamic value, dynamic defaultValue) {
+    if (value == null) return defaultValue;
+    if (value is num) return value;
+    if (value is String) {
+      final parsed = num.tryParse(value);
+      return parsed ?? defaultValue;
+    }
+    return defaultValue;
+  }
+
+  // FIX: Enhanced remove from favorites with proper API call
   Future<void> _removeFromFavorites(int propertyId) async {
     try {
-      final response = await http.delete(
-        Uri.parse('${ApiConfig.removeFavoriteUrl}?userId=${UserSession.getCurrentUserId()}&propertyId=$propertyId'),
-        headers: ApiConfig.headers,
-      );
+      final userId = UserSession.getCurrentUserId();
+
+      final response = await ApiConfig.removeFromFavorites(userId, propertyId);
+
+      print('Remove favorite response: ${response.statusCode}');
+      print('Remove favorite body: ${response.body}');
 
       if (response.statusCode == 200) {
         setState(() {
           _favoriteProperties.removeWhere((property) => property['id'] == propertyId);
+          // Also remove from comparison selection if selected
+          _selectedForComparison.remove(propertyId.toString());
+          if (_selectedForComparison.isEmpty) {
+            _isSelectionMode = false;
+          }
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Removed from favorites'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        _showSuccessMessage('Removed from favorites');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to remove from favorites'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showErrorMessage('Failed to remove from favorites');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showErrorMessage('Error removing from favorites: $e');
     }
   }
 
@@ -120,12 +185,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         if (_selectedForComparison.length < 3) {
           _selectedForComparison.add(propertyId);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('You can compare up to 3 properties at a time'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          _showErrorMessage('You can compare up to 3 properties at a time');
         }
       }
     });
@@ -133,12 +193,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   void _startComparison() {
     if (_selectedForComparison.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select at least 2 properties to compare'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showErrorMessage('Select at least 2 properties to compare');
       return;
     }
 
@@ -220,12 +275,32 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     );
   }
 
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Widget _buildPropertyImage(String? imagePath) {
     if (!ApiConfig.isValidImagePath(imagePath)) {
       return Container(
-        color: Colors.grey[300],
-        child: const Center(
-          child: Icon(Icons.home, size: 50, color: Colors.grey),
+        color: Colors.grey[200],
+        child: Center(
+          child: Icon(Icons.home, size: 50, color: Colors.grey[400]),
         ),
       );
     }
@@ -238,17 +313,17 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) return child;
         return Container(
-          color: Colors.grey[300],
+          color: Colors.grey[200],
           child: const Center(
-            child: CircularProgressIndicator(),
+            child: CircularProgressIndicator(color: Color(0xFF4A90E2)),
           ),
         );
       },
       errorBuilder: (context, error, stackTrace) {
         return Container(
-          color: Colors.grey[300],
-          child: const Center(
-            child: Icon(Icons.broken_image, size: 50, color: Colors.grey),
+          color: Colors.grey[200],
+          child: Center(
+            child: Icon(Icons.broken_image, size: 50, color: Colors.grey[400]),
           ),
         );
       },
@@ -258,28 +333,15 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1a237e),
-              Color(0xFF234E70),
-              Color(0xFF305F80),
-            ],
-            stops: [0.2, 0.6, 0.9],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: _buildBody(),
-              ),
-            ],
-          ),
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: _buildBody(),
+            ),
+          ],
         ),
       ),
       floatingActionButton: _selectedForComparison.isNotEmpty
@@ -288,7 +350,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         children: [
           FloatingActionButton.extended(
             onPressed: _clearSelection,
-            backgroundColor: Colors.grey.withOpacity(0.8),
+            backgroundColor: Colors.grey[600],
             heroTag: "clear",
             label: const Text(
               'Clear',
@@ -299,7 +361,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           const SizedBox(width: 8),
           FloatingActionButton.extended(
             onPressed: _startComparison,
-            backgroundColor: Colors.blue,
+            backgroundColor: const Color(0xFF4A90E2),
             heroTag: "compare",
             label: Text(
               'Compare (${_selectedForComparison.length})',
@@ -316,17 +378,32 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1a237e),
+            Color(0xFF234E70),
+            Color(0xFF4A90E2),
+          ],
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(25),
+          bottomRight: Radius.circular(25),
         ),
       ),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -342,9 +419,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   ),
                 ),
                 Text(
-                  '${_favoriteProperties.length} properties',
+                  '${_favoriteProperties.length} ${_favoriteProperties.length == 1 ? 'property' : 'properties'}',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withOpacity(0.8),
                     fontSize: 14,
                   ),
                 ),
@@ -352,14 +429,26 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             ),
           ),
           if (_isSelectionMode)
-            IconButton(
-              icon: const Icon(Icons.close, color: Colors.white),
-              onPressed: _clearSelection,
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: _clearSelection,
+              ),
             )
           else
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white),
-              onPressed: _loadFavoriteProperties,
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: _loadFavoriteProperties,
+              ),
             ),
         ],
       ),
@@ -369,7 +458,17 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Color(0xFF4A90E2)),
+            SizedBox(height: 16),
+            Text(
+              'Loading your favorites...',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
       );
     }
 
@@ -386,261 +485,318 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   Widget _buildErrorState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.white.withOpacity(0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _errorMessage!,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 18,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red[400],
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadFavoriteProperties,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.2),
+            const SizedBox(height: 16),
+            Text(
+              'Failed to load favorites',
+              style: TextStyle(
+                color: Colors.grey[800],
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            child: const Text(
-              'Retry',
-              style: TextStyle(color: Colors.white),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadFavoriteProperties,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A90E2),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              child: const Text('Try Again', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.favorite_border,
-            size: 64,
-            color: Colors.white.withOpacity(0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No favorites yet',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 18,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                Icons.favorite_border,
+                size: 64,
+                color: Colors.grey[400],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Properties you mark as favorites will appear here',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
-              fontSize: 14,
+            const SizedBox(height: 16),
+            Text(
+              'No favorites yet',
+              style: TextStyle(
+                color: Colors.grey[800],
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              'Properties you mark as favorites will appear here',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A90E2),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              child: const Text('Browse Properties', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildPropertiesList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: _favoriteProperties.length,
-      itemBuilder: (context, index) {
-        final property = _favoriteProperties[index];
-        final propertyId = property['id'].toString();
-        final isSelected = _selectedForComparison.contains(propertyId);
+    return RefreshIndicator(
+      onRefresh: _loadFavoriteProperties,
+      color: const Color(0xFF4A90E2),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(20),
+        itemCount: _favoriteProperties.length,
+        itemBuilder: (context, index) {
+          final property = _favoriteProperties[index];
+          final propertyId = property['id'].toString();
+          final isSelected = _selectedForComparison.contains(propertyId);
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: GestureDetector(
-            onTap: () => _handlePropertyTap(property),
-            onLongPress: () => _handlePropertyLongPress(property),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isSelected ? Colors.blue : Colors.white.withOpacity(0.2),
-                  width: isSelected ? 2 : 1,
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: GestureDetector(
+              onTap: () => _handlePropertyTap(property),
+              onLongPress: () => _handlePropertyLongPress(property),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected ? const Color(0xFF4A90E2) : Colors.grey[200]!,
+                    width: isSelected ? 2 : 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
-              ),
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      Container(
-                        height: 200,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(20),
+                child: Column(
+                  children: [
+                    Stack(
+                      children: [
+                        Container(
+                          height: 200,
+                          decoration: const BoxDecoration(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                            child: _buildPropertyImage(property['imagePath']),
                           ),
                         ),
-                        child: ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(20),
-                          ),
-                          child: _buildPropertyImage(property['imagePath']),
-                        ),
-                      ),
 
-                      // Selection indicator
-                      if (isSelected)
+                        // Selection indicator
+                        if (isSelected)
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF4A90E2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '${_selectedForComparison.toList().indexOf(propertyId) + 1}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        // Remove from favorites button
                         Positioned(
                           top: 10,
-                          right: 10,
+                          left: 10,
                           child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: Colors.blue,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
                               shape: BoxShape.circle,
                             ),
-                            child: Text(
-                              '${_selectedForComparison.toList().indexOf(propertyId) + 1}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.favorite,
+                                color: Colors.red,
+                                size: 20,
                               ),
+                              onPressed: () => _showRemoveConfirmation(property),
                             ),
                           ),
-                        ),
-
-                      // Remove from favorites button
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.favorite,
-                              color: Colors.red,
-                              size: 20,
-                            ),
-                            onPressed: () => _showRemoveConfirmation(property),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                property['houseType'] ?? 'Property',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '\$${property['price'] ?? 0}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on,
-                              color: Colors.white.withOpacity(0.8),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                '${property['city'] ?? ''}, ${property['region'] ?? ''}',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildPropertyFeature(
-                              Icons.straighten,
-                              '${property['size'] ?? 0} m²',
-                            ),
-                            _buildPropertyFeature(
-                              Icons.king_bed,
-                              '${property['bedrooms'] ?? 0} Beds',
-                            ),
-                            _buildPropertyFeature(
-                              Icons.bathtub,
-                              '${property['bathrooms'] ?? 0} Baths',
-                            ),
-                          ],
                         ),
                       ],
                     ),
-                  ),
-                ],
+
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  property['houseType'] ?? 'Property',
+                                  style: const TextStyle(
+                                    color: Color(0xFF234E70),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4A90E2).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '${property['price'] ?? 0} LE',
+                                  style: const TextStyle(
+                                    color: Color(0xFF4A90E2),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on,
+                                color: Colors.grey[600],
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '${property['city'] ?? ''}, ${property['region'] ?? ''}',
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildPropertyFeature(
+                                Icons.straighten,
+                                '${property['size'] ?? 0} m²',
+                              ),
+                              _buildPropertyFeature(
+                                Icons.king_bed,
+                                '${property['bedrooms'] ?? 0} Beds',
+                              ),
+                              _buildPropertyFeature(
+                                Icons.bathtub,
+                                '${property['bathrooms'] ?? 0} Baths',
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildPropertyFeature(IconData icon, String text) {
-    return Row(
+    return Column(
       children: [
-        Icon(
-          icon,
-          color: Colors.white.withOpacity(0.8),
-          size: 16,
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4A90E2).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            color: const Color(0xFF4A90E2),
+            size: 16,
+          ),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(height: 4),
         Text(
           text,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
+            color: Colors.grey[700],
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
