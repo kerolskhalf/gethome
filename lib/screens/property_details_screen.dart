@@ -27,10 +27,16 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     _checkIfFavorite();
   }
 
+  // FIX: Enhanced favorite status checking
   Future<void> _checkIfFavorite() async {
     try {
+      final userId = UserSession.getCurrentUserId();
+      if (userId <= 0) return;
+
+      print('🔍 Checking favorite status for property ${widget.property['id']}');
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.userFavoritesUrl(UserSession.getCurrentUserId())}?page=1&pageSize=100'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/favorites/user/$userId?page=1&pageSize=100'),
         headers: ApiConfig.headers,
       );
 
@@ -51,34 +57,38 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 (fav['property'] != null && fav['property']['id'] == widget.property['id']);
           });
         });
+
+        print('✅ Favorite status: $_isSaved');
       }
     } catch (e) {
-      print('Error checking favorite status: $e');
+      print('❌ Error checking favorite status: $e');
     }
   }
 
-  // FIX: Updated favorites toggle with proper API format
+  // FIX: Enhanced favorites toggle with proper error handling
   Future<void> _toggleFavorite() async {
     if (_isTogglingFavorite) return;
 
     setState(() => _isTogglingFavorite = true);
 
     try {
+      final userId = UserSession.getCurrentUserId();
+      final propertyId = widget.property['id'];
+
       // Use the toggle endpoint with query parameters
-      final uri = Uri.parse(ApiConfig.toggleFavoriteUrl).replace(
+      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/favorites/toggle').replace(
         queryParameters: {
-          'userId': UserSession.getCurrentUserId().toString(),
-          'propertyId': widget.property['id'].toString(),
+          'userId': userId.toString(),
+          'propertyId': propertyId.toString(),
         },
       );
 
-      final response = await http.post(
-        uri,
-        headers: ApiConfig.headers,
-      );
+      print('💖 Toggling favorite: $uri');
 
-      print('Favorites toggle response: ${response.statusCode}');
-      print('Favorites toggle body: ${response.body}');
+      final response = await http.post(uri, headers: ApiConfig.headers);
+
+      print('📡 Favorites toggle response: ${response.statusCode}');
+      print('📋 Favorites toggle body: ${response.body}');
 
       if (response.statusCode == 200) {
         setState(() {
@@ -95,6 +105,66 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     }
   }
 
+  // FIX: Enhanced viewing request creation
+  Future<void> _createViewingRequest() async {
+    final selectedDateTime = await _showDateTimePicker();
+    if (selectedDateTime == null) return;
+
+    final propertyId = widget.property['id'];
+    final userId = UserSession.getCurrentUserId();
+
+    if (propertyId == null || userId <= 0) {
+      _showErrorMessage('Unable to create viewing request');
+      return;
+    }
+
+    setState(() => _isCreatingViewingRequest = true);
+
+    try {
+      final requestBody = {
+        'propertyId': propertyId,
+        'userId': userId,
+        'requestedDateTime': selectedDateTime.toUtc().toIso8601String(),
+        'message': 'Viewing request for ${widget.property['houseType']} in ${widget.property['city']}',
+      };
+
+      print('📅 Creating viewing request: $requestBody');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests/create'),
+        headers: ApiConfig.headers,
+        body: json.encode(requestBody),
+      );
+
+      print('📡 Viewing request response: ${response.statusCode}');
+      print('📋 Viewing request body: ${response.body}');
+
+      setState(() => _isCreatingViewingRequest = false);
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _showSuccessMessage(data['message'] ?? 'Viewing request created successfully for ${_formatDateTime(selectedDateTime)}');
+      } else if (response.statusCode == 400) {
+        try {
+          final errorData = json.decode(response.body);
+          _showErrorMessage(errorData['message'] ?? 'Failed to create viewing request');
+        } catch (e) {
+          _showErrorMessage('You may already have a pending request for this property');
+        }
+      } else {
+        _showErrorMessage('Failed to create viewing request');
+      }
+    } catch (e) {
+      setState(() => _isCreatingViewingRequest = false);
+      if (mounted) {
+        _showErrorMessage('Network error. Please try again.');
+      }
+    }
+  }
+
+  // Enhanced contact information retrieval
   Future<void> _getSellerContact() async {
     final propertyId = widget.property['id'];
     if (propertyId == null) {
@@ -106,7 +176,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse(ApiConfig.propertyContactUrl(propertyId)),
+        Uri.parse('${ApiConfig.BASE_URL}/api/properties/$propertyId/contact'),
         headers: ApiConfig.headers,
       );
 
@@ -138,61 +208,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     }
   }
 
-  // FIX: Updated viewing request with date/time selection
-  Future<void> _createViewingRequest() async {
-    final selectedDateTime = await _showDateTimePicker();
-    if (selectedDateTime == null) return;
-
-    final propertyId = widget.property['id'];
-    final userId = UserSession.getCurrentUserId();
-
-    if (propertyId == null || userId <= 0) {
-      _showErrorMessage('Unable to create viewing request');
-      return;
-    }
-
-    setState(() => _isCreatingViewingRequest = true);
-
-    try {
-      final requestBody = {
-        'propertyId': propertyId,
-        'userId': userId,
-        'requestedDateTime': selectedDateTime.toUtc().toIso8601String(),
-        'message': 'Viewing request for ${widget.property['houseType']} in ${widget.property['city']}',
-      };
-
-      final response = await http.post(
-        Uri.parse(ApiConfig.createViewingRequestUrl),
-        headers: ApiConfig.headers,
-        body: json.encode(requestBody),
-      );
-
-      setState(() => _isCreatingViewingRequest = false);
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _showSuccessMessage(data['message'] ?? 'Viewing request created successfully for ${_formatDateTime(selectedDateTime)}');
-      } else if (response.statusCode == 400) {
-        try {
-          final errorData = json.decode(response.body);
-          _showErrorMessage(errorData['message'] ?? 'Failed to create viewing request');
-        } catch (e) {
-          _showErrorMessage('You may already have a pending request for this property');
-        }
-      } else {
-        _showErrorMessage('Failed to create viewing request');
-      }
-    } catch (e) {
-      setState(() => _isCreatingViewingRequest = false);
-      if (mounted) {
-        _showErrorMessage('Network error. Please try again.');
-      }
-    }
-  }
-
-  // FIX: Add date/time picker for viewing requests
+  // Date/time picker for viewing requests
   Future<DateTime?> _showDateTimePicker() async {
     final DateTime? selectedDate = await showDatePicker(
       context: context,
@@ -297,10 +313,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Close',
-              style: TextStyle(color: Colors.white70),
-            ),
+            child: const Text('Close', style: TextStyle(color: Colors.white70)),
           ),
         ],
       ),

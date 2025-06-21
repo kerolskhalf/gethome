@@ -1,11 +1,10 @@
-// lib/screens/favorites_screen.dart - ENHANCED VERSION
+// lib/screens/favorites_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 import 'property_details_screen.dart';
-import 'property_comparison_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({Key? key}) : super(key: key);
@@ -18,8 +17,6 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   List<Map<String, dynamic>> _favoriteProperties = [];
   bool _isLoading = false;
   String? _errorMessage;
-  final Set<String> _selectedForComparison = {};
-  bool _isSelectionMode = false;
 
   @override
   void initState() {
@@ -44,15 +41,15 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         return;
       }
 
-      print('Loading favorites for user: $userId');
+      print('🔍 Loading favorites for user: $userId');
 
       final response = await http.get(
-        Uri.parse('${ApiConfig.userFavoritesUrl(userId)}?page=1&pageSize=100'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/favorites/user/$userId?page=1&pageSize=100'),
         headers: ApiConfig.headers,
       ).timeout(const Duration(seconds: 10));
 
-      print('Favorites response status: ${response.statusCode}');
-      print('Favorites response body: ${response.body}');
+      print('📡 Favorites response status: ${response.statusCode}');
+      print('📋 Favorites response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -78,7 +75,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           }
         }
 
-        print('Processed ${properties.length} favorite properties');
+        print('✅ Processed ${properties.length} favorite properties');
 
         setState(() {
           _favoriteProperties = properties;
@@ -96,7 +93,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         });
       }
     } catch (e) {
-      print('Error loading favorites: $e');
+      print('❌ Error loading favorites: $e');
       setState(() {
         _errorMessage = 'Network error: ${e.toString()}';
       });
@@ -130,7 +127,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       }
       return {};
     } catch (e) {
-      print('Error converting property: $e');
+      print('❌ Error converting property: $e');
       return {};
     }
   }
@@ -150,21 +147,25 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     try {
       final userId = UserSession.getCurrentUserId();
 
-      final response = await ApiConfig.removeFromFavorites(userId, propertyId);
+      // Use query parameters as per API documentation
+      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/favorites/remove').replace(
+        queryParameters: {
+          'userId': userId.toString(),
+          'propertyId': propertyId.toString(),
+        },
+      );
 
-      print('Remove favorite response: ${response.statusCode}');
-      print('Remove favorite body: ${response.body}');
+      print('🗑️ Removing from favorites: $uri');
+
+      final response = await http.delete(uri, headers: ApiConfig.headers);
+
+      print('📡 Remove favorite response: ${response.statusCode}');
+      print('📋 Remove favorite body: ${response.body}');
 
       if (response.statusCode == 200) {
         setState(() {
           _favoriteProperties.removeWhere((property) => property['id'] == propertyId);
-          // Also remove from comparison selection if selected
-          _selectedForComparison.remove(propertyId.toString());
-          if (_selectedForComparison.isEmpty) {
-            _isSelectionMode = false;
-          }
         });
-
         _showSuccessMessage('Removed from favorites');
       } else {
         _showErrorMessage('Failed to remove from favorites');
@@ -172,70 +173,6 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     } catch (e) {
       _showErrorMessage('Error removing from favorites: $e');
     }
-  }
-
-  void _togglePropertySelection(String propertyId) {
-    setState(() {
-      if (_selectedForComparison.contains(propertyId)) {
-        _selectedForComparison.remove(propertyId);
-        if (_selectedForComparison.isEmpty) {
-          _isSelectionMode = false;
-        }
-      } else {
-        if (_selectedForComparison.length < 3) {
-          _selectedForComparison.add(propertyId);
-        } else {
-          _showErrorMessage('You can compare up to 3 properties at a time');
-        }
-      }
-    });
-  }
-
-  void _startComparison() {
-    if (_selectedForComparison.length < 2) {
-      _showErrorMessage('Select at least 2 properties to compare');
-      return;
-    }
-
-    final selectedProperties = _favoriteProperties
-        .where((p) => _selectedForComparison.contains(p['id'].toString()))
-        .toList();
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PropertyComparisonScreen(
-          selectedProperties: selectedProperties,
-        ),
-      ),
-    );
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selectedForComparison.clear();
-      _isSelectionMode = false;
-    });
-  }
-
-  void _handlePropertyTap(Map<String, dynamic> property) {
-    if (_isSelectionMode) {
-      _togglePropertySelection(property['id'].toString());
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PropertyDetailsScreen(property: property),
-        ),
-      );
-    }
-  }
-
-  void _handlePropertyLongPress(Map<String, dynamic> property) {
-    setState(() {
-      _isSelectionMode = true;
-      _togglePropertySelection(property['id'].toString());
-    });
   }
 
   void _showRemoveConfirmation(Map<String, dynamic> property) {
@@ -255,20 +192,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.white70),
-            ),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _removeFromFavorites(property['id']);
             },
-            child: const Text(
-              'Remove',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('Remove', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -338,40 +269,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         child: Column(
           children: [
             _buildHeader(),
-            Expanded(
-              child: _buildBody(),
-            ),
+            Expanded(child: _buildBody()),
           ],
         ),
       ),
-      floatingActionButton: _selectedForComparison.isNotEmpty
-          ? Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            onPressed: _clearSelection,
-            backgroundColor: Colors.grey[600],
-            heroTag: "clear",
-            label: const Text(
-              'Clear',
-              style: TextStyle(color: Colors.white),
-            ),
-            icon: const Icon(Icons.clear, color: Colors.white),
-          ),
-          const SizedBox(width: 8),
-          FloatingActionButton.extended(
-            onPressed: _startComparison,
-            backgroundColor: const Color(0xFF4A90E2),
-            heroTag: "compare",
-            label: Text(
-              'Compare (${_selectedForComparison.length})',
-              style: const TextStyle(color: Colors.white),
-            ),
-            icon: const Icon(Icons.compare_arrows, color: Colors.white),
-          ),
-        ],
-      )
-          : null,
     );
   }
 
@@ -428,28 +329,16 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
               ],
             ),
           ),
-          if (_isSelectionMode)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: _clearSelection,
-              ),
-            )
-          else
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: _loadFavoriteProperties,
-              ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _loadFavoriteProperties,
+            ),
+          ),
         ],
       ),
     );
@@ -463,10 +352,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           children: [
             CircularProgressIndicator(color: Color(0xFF4A90E2)),
             SizedBox(height: 16),
-            Text(
-              'Loading your favorites...',
-              style: TextStyle(color: Colors.grey),
-            ),
+            Text('Loading your favorites...', style: TextStyle(color: Colors.grey)),
           ],
         ),
       );
@@ -496,11 +382,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                 color: Colors.red.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Colors.red[400],
-              ),
+              child: Icon(Icons.error_outline, size: 64, color: Colors.red[400]),
             ),
             const SizedBox(height: 16),
             Text(
@@ -514,10 +396,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             const SizedBox(height: 8),
             Text(
               _errorMessage!,
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -549,11 +428,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                 color: Colors.grey.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(
-                Icons.favorite_border,
-                size: 64,
-                color: Colors.grey[400],
-              ),
+              child: Icon(Icons.favorite_border, size: 64, color: Colors.grey[400]),
             ),
             const SizedBox(height: 16),
             Text(
@@ -567,10 +442,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             const SizedBox(height: 8),
             Text(
               'Properties you mark as favorites will appear here',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -598,22 +470,21 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         itemCount: _favoriteProperties.length,
         itemBuilder: (context, index) {
           final property = _favoriteProperties[index];
-          final propertyId = property['id'].toString();
-          final isSelected = _selectedForComparison.contains(propertyId);
-
           return Padding(
             padding: const EdgeInsets.only(bottom: 20),
             child: GestureDetector(
-              onTap: () => _handlePropertyTap(property),
-              onLongPress: () => _handlePropertyLongPress(property),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PropertyDetailsScreen(property: property),
+                  ),
+                );
+              },
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isSelected ? const Color(0xFF4A90E2) : Colors.grey[200]!,
-                    width: isSelected ? 2 : 1,
-                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.08),
@@ -636,54 +507,23 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                             child: _buildPropertyImage(property['imagePath']),
                           ),
                         ),
-
-                        // Selection indicator
-                        if (isSelected)
-                          Positioned(
-                            top: 10,
-                            right: 10,
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF4A90E2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${_selectedForComparison.toList().indexOf(propertyId) + 1}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
                         // Remove from favorites button
                         Positioned(
                           top: 10,
-                          left: 10,
+                          right: 10,
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.black.withOpacity(0.6),
                               shape: BoxShape.circle,
                             ),
                             child: IconButton(
-                              icon: const Icon(
-                                Icons.favorite,
-                                color: Colors.red,
-                                size: 20,
-                              ),
+                              icon: const Icon(Icons.favorite, color: Colors.red, size: 20),
                               onPressed: () => _showRemoveConfirmation(property),
                             ),
                           ),
                         ),
                       ],
                     ),
-
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -703,10 +543,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                                 ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF4A90E2).withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(20),
@@ -723,43 +560,25 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
-
                           Row(
                             children: [
-                              Icon(
-                                Icons.location_on,
-                                color: Colors.grey[600],
-                                size: 16,
-                              ),
+                              Icon(Icons.location_on, color: Colors.grey[600], size: 16),
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
                                   '${property['city'] ?? ''}, ${property['region'] ?? ''}',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                  ),
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 16),
-
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              _buildPropertyFeature(
-                                Icons.straighten,
-                                '${property['size'] ?? 0} m²',
-                              ),
-                              _buildPropertyFeature(
-                                Icons.king_bed,
-                                '${property['bedrooms'] ?? 0} Beds',
-                              ),
-                              _buildPropertyFeature(
-                                Icons.bathtub,
-                                '${property['bathrooms'] ?? 0} Baths',
-                              ),
+                              _buildPropertyFeature(Icons.straighten, '${property['size'] ?? 0} m²'),
+                              _buildPropertyFeature(Icons.king_bed, '${property['bedrooms'] ?? 0} Beds'),
+                              _buildPropertyFeature(Icons.bathtub, '${property['bathrooms'] ?? 0} Baths'),
                             ],
                           ),
                         ],
@@ -784,11 +603,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             color: const Color(0xFF4A90E2).withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            color: const Color(0xFF4A90E2),
-            size: 16,
-          ),
+          child: Icon(icon, color: const Color(0xFF4A90E2), size: 16),
         ),
         const SizedBox(height: 4),
         Text(

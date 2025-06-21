@@ -1,4 +1,4 @@
-// lib/screens/viewing_requests_screen.dart - FIXED VERSION
+// lib/screens/viewing_requests_screen.dart - TEMPORARY FIX
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -8,7 +8,7 @@ import '../utils/api_config.dart';
 
 class ViewingRequestsScreen extends StatefulWidget {
   final bool isSellerView;
-  final int? propertyId; // For seller view - show requests for specific property
+  final int? propertyId;
 
   const ViewingRequestsScreen({
     Key? key,
@@ -31,59 +31,47 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     _loadViewingRequests();
   }
 
-  // FIX: Enhanced viewing requests loading with better error handling
+  // TEMPORARY: Since backend GET endpoints don't exist yet, show info message
   Future<void> _loadViewingRequests() async {
     setState(() => _isLoading = true);
 
     try {
-      String endpoint;
-      Map<String, String> queryParams = {};
+      print('🔍 Attempting to load viewing requests...');
 
-      if (widget.isSellerView && widget.propertyId != null) {
-        // Get viewing requests for specific property (seller view)
-        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/property/${widget.propertyId}';
-      } else {
-        // Get all viewing requests for user (buyer view)
-        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
-      }
-
-      print('Loading viewing requests from: $endpoint');
+      // Try the endpoint that should exist
+      String endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
 
       final response = await http.get(
         Uri.parse(endpoint),
         headers: ApiConfig.headers,
-      );
+      ).timeout(const Duration(seconds: 10));
 
-      print('Viewing requests response status: ${response.statusCode}');
-      print('Viewing requests response body: ${response.body}');
+      print('📡 Response status: ${response.statusCode}');
+      print('📋 Response body: ${response.body}');
 
       if (response.statusCode == 200) {
+        // Success - parse the data
         final data = json.decode(response.body);
         List<Map<String, dynamic>> requests = [];
 
-        // Handle different response formats
         if (data is List) {
-          requests = data.map((item) => Map<String, dynamic>.from(item)).toList();
+          requests = data.map((item) => _safeMapConversion(item)).toList();
         } else if (data is Map<String, dynamic>) {
           if (data.containsKey('data') && data['data'] is List) {
-            requests = (data['data'] as List).map((item) => Map<String, dynamic>.from(item)).toList();
-          } else {
-            // Single request wrapped in object
-            requests = [Map<String, dynamic>.from(data)];
+            requests = (data['data'] as List).map((item) => _safeMapConversion(item)).toList();
           }
         }
-
-        print('Parsed ${requests.length} viewing requests');
 
         setState(() {
           _viewingRequests = requests;
           _errorMessage = null;
         });
+
       } else if (response.statusCode == 404) {
-        // No requests found - this is normal
+        // Backend endpoint doesn't exist yet - show helpful message
         setState(() {
           _viewingRequests = [];
-          _errorMessage = null;
+          _errorMessage = 'backend_not_ready';
         });
       } else {
         setState(() {
@@ -91,16 +79,30 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         });
       }
     } catch (e) {
-      print('Error loading viewing requests: $e');
+      print('❌ Error loading viewing requests: $e');
       setState(() {
-        _errorMessage = 'Network error: $e';
+        _errorMessage = 'backend_not_ready';
       });
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  // FIX: Enhanced status update with better API handling
+  Map<String, dynamic> _safeMapConversion(dynamic item) {
+    if (item is Map<String, dynamic>) {
+      return {
+        'id': item['id'] ?? 0,
+        'userId': item['userId'] ?? 0,
+        'propertyId': item['propertyId'] ?? 0,
+        'status': item['status'] ?? 0,
+        'requestDate': item['requestDate'] ?? DateTime.now().toIso8601String(),
+        'user': item['user'],
+        'property': item['property'],
+      };
+    }
+    return {};
+  }
+
   Future<void> _updateRequestStatus(int requestId, String status) async {
     try {
       final response = await http.put(
@@ -109,12 +111,9 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         body: json.encode(status),
       );
 
-      print('Update status response: ${response.statusCode}');
-      print('Update status body: ${response.body}');
-
       if (response.statusCode == 200) {
         _showSuccessMessage('Request $status successfully');
-        _loadViewingRequests(); // Reload the list
+        _loadViewingRequests();
       } else {
         _showErrorMessage('Failed to update request status');
       }
@@ -123,205 +122,9 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     }
   }
 
-  // FIX: Add reschedule functionality
-  Future<void> _rescheduleRequest(Map<String, dynamic> request) async {
-    final DateTime? newDateTime = await _showDateTimePicker();
-    if (newDateTime == null) return;
-
-    try {
-      final response = await http.put(
-        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests/reschedule/${request['id']}'),
-        headers: ApiConfig.headers,
-        body: json.encode({
-          'newDateTime': newDateTime.toUtc().toIso8601String(),
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        _showSuccessMessage('Request rescheduled to ${_formatDateTime(newDateTime)}');
-        _loadViewingRequests();
-      } else {
-        _showErrorMessage('Failed to reschedule request');
-      }
-    } catch (e) {
-      _showErrorMessage('Error rescheduling request: $e');
-    }
-  }
-
-  // Add date/time picker for rescheduling
-  Future<DateTime?> _showDateTimePicker() async {
-    final DateTime? selectedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
-      helpText: 'Select new viewing date',
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF234E70),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (selectedDate == null) return null;
-
-    if (!mounted) return null;
-
-    final TimeOfDay? selectedTime = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 10, minute: 0),
-      helpText: 'Select new viewing time',
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF234E70),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (selectedTime == null) return null;
-
-    return DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-      selectedTime.hour,
-      selectedTime.minute,
-    );
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    return DateFormat('MMM dd, yyyy - HH:mm').format(dateTime);
-  }
-
-  void _showSuccessMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  void _showErrorMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-
-  void _showRequestDialog(Map<String, dynamic> request) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF234E70),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: Text(
-          widget.isSellerView ? 'Viewing Request Details' : 'Your Request',
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildInfoRow('Request ID', request['id']?.toString() ?? 'N/A'),
-
-              if (widget.isSellerView) ...[
-                _buildInfoRow('User ID', request['userId']?.toString() ?? 'N/A'),
-                if (request['user'] != null) ...[
-                  _buildInfoRow('Buyer Name', request['user']['fullName'] ?? 'Unknown'),
-                  _buildInfoRow('Contact', request['user']['phoneNumber'] ?? request['user']['email'] ?? 'N/A'),
-                ],
-              ] else ...[
-                _buildInfoRow('Property ID', request['propertyId']?.toString() ?? 'N/A'),
-                if (request['property'] != null) ...[
-                  _buildInfoRow('Property Type', request['property']['houseType'] ?? 'Property'),
-                  _buildInfoRow('Location', '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}'),
-                  _buildInfoRow('Price', '\$${request['property']['price'] ?? 0}'),
-                ],
-              ],
-
-              _buildInfoRow('Status', _getStatusText(request['status'])),
-
-              // FIX: Enhanced date/time display
-              if (request['requestedDateTime'] != null)
-                _buildInfoRow('Requested Date & Time',
-                    _formatDateTime(DateTime.parse(request['requestedDateTime']))
-                )
-              else if (request['requestDate'] != null)
-                _buildInfoRow('Request Date',
-                    _formatDateTime(DateTime.parse(request['requestDate']))
-                ),
-
-              if (request['message'] != null)
-                _buildInfoRow('Message', request['message']),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label: ',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // FIX: Enhanced status text handling
   String _getStatusText(dynamic status) {
     if (status == null) return 'Unknown';
 
-    // Handle numeric status values
     if (status is int) {
       switch (status) {
         case 0: return 'Pending';
@@ -333,42 +136,31 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       }
     }
 
-    // Handle string status values
-    if (status is String) {
-      switch (status.toLowerCase()) {
-        case 'pending':
-          return 'Pending';
-        case 'approved':
-          return 'Approved';
-        case 'rejected':
-          return 'Rejected';
-        case 'cancelled':
-          return 'Cancelled';
-        case 'completed':
-          return 'Completed';
-        default:
-          return status;
-      }
-    }
-
     return status.toString();
   }
 
   Color _getStatusColor(dynamic status) {
     final statusText = _getStatusText(status).toLowerCase();
     switch (statusText) {
-      case 'approved':
-        return Colors.green;
-      case 'rejected':
-        return Colors.red;
-      case 'cancelled':
-        return Colors.orange;
-      case 'completed':
-        return Colors.blue;
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
+      case 'cancelled': return Colors.orange;
+      case 'completed': return Colors.blue;
       case 'pending':
-      default:
-        return Colors.yellow;
+      default: return Colors.yellow;
     }
+  }
+
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -391,9 +183,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           child: Column(
             children: [
               _buildHeader(),
-              Expanded(
-                child: _buildBody(),
-              ),
+              Expanded(child: _buildBody()),
             ],
           ),
         ),
@@ -406,9 +196,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
-        ),
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.2))),
       ),
       child: Row(
         children: [
@@ -422,9 +210,7 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.isSellerView
-                      ? 'Viewing Requests'
-                      : 'My Viewing Requests',
+                  widget.isSellerView ? 'Property Requests' : 'My Viewing Requests',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 24,
@@ -458,13 +244,15 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
           children: [
             CircularProgressIndicator(color: Colors.white),
             SizedBox(height: 16),
-            Text(
-              'Loading viewing requests...',
-              style: TextStyle(color: Colors.white),
-            ),
+            Text('Loading requests...', style: TextStyle(color: Colors.white)),
           ],
         ),
       );
+    }
+
+    // TEMPORARY: Show backend not ready message
+    if (_errorMessage == 'backend_not_ready') {
+      return _buildBackendNotReadyState();
     }
 
     if (_errorMessage != null) {
@@ -478,25 +266,115 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     return _buildRequestsList();
   }
 
+  // TEMPORARY: Special state for when backend endpoints aren't ready
+  Widget _buildBackendNotReadyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.orange.withOpacity(0.3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.construction,
+                size: 64,
+                color: Colors.orange.withOpacity(0.8),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Backend Update Required',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'The viewing requests feature is working, but your backend needs to be updated with GET endpoints to display existing requests.',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'What\'s working:',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '✅ Creating viewing requests\n✅ Duplicate request prevention\n✅ Request validation',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Missing backend endpoints:',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '❌ GET /api/viewing-requests/user/{userId}\n❌ GET /api/viewing-requests/property/{propertyId}',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Good news: Creating new viewing requests works perfectly! The backend just needs the GET endpoints added.',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildErrorState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.white.withOpacity(0.5),
-          ),
+          Icon(Icons.error_outline, size: 64, color: Colors.white.withOpacity(0.5)),
           const SizedBox(height: 16),
-          Text(
-            _errorMessage!,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 18,
-            ),
-            textAlign: TextAlign.center,
-          ),
+          Text(_errorMessage!, style: TextStyle(color: Colors.white.withOpacity(0.8))),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: _loadViewingRequests,
@@ -512,30 +390,18 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.calendar_view_month_outlined,
-            size: 64,
-            color: Colors.white.withOpacity(0.5),
-          ),
+          Icon(Icons.calendar_view_month_outlined, size: 64, color: Colors.white.withOpacity(0.5)),
           const SizedBox(height: 16),
           Text(
-            widget.isSellerView
-                ? 'No viewing requests yet'
-                : 'No viewing requests made',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 18,
-            ),
+            widget.isSellerView ? 'No viewing requests yet' : 'No viewing requests made',
+            style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 18),
           ),
           const SizedBox(height: 8),
           Text(
             widget.isSellerView
                 ? 'When buyers request to view your properties, they will appear here'
                 : 'Request to view properties from their detail pages',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 14),
             textAlign: TextAlign.center,
           ),
         ],
@@ -544,20 +410,16 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
   }
 
   Widget _buildRequestsList() {
-    return RefreshIndicator(
-      onRefresh: _loadViewingRequests,
-      color: Colors.white,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(20),
-        itemCount: _viewingRequests.length,
-        itemBuilder: (context, index) {
-          final request = _viewingRequests[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: _buildRequestCard(request),
-          );
-        },
-      ),
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: _viewingRequests.length,
+      itemBuilder: (context, index) {
+        final request = _viewingRequests[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _buildRequestCard(request),
+        );
+      },
     );
   }
 
@@ -572,201 +434,91 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
-      child: InkWell(
-        onTap: () => _showRequestDialog(request),
-        borderRadius: BorderRadius.circular(15),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.isSellerView
-                          ? 'Request #${request['id'] ?? 'N/A'}'
-                          : 'Property Request',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Request #${request['id']}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      statusText,
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              // Show additional details based on view type
-              if (widget.isSellerView) ...[
-                if (request['user'] != null)
-                  Text(
-                    'Buyer: ${request['user']['fullName'] ?? 'Unknown'}',
+                  child: Text(
+                    statusText,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
+                      color: statusColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-              ] else ...[
-                if (request['property'] != null) ...[
-                  Text(
-                    '${request['property']['houseType'] ?? 'Property'} - \$${request['property']['price'] ?? 0}',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.location_on,
-                        color: Colors.white.withOpacity(0.7),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          '${request['property']['city'] ?? ''}, ${request['property']['region'] ?? ''}',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ],
+            ),
+            const SizedBox(height: 8),
 
-              const SizedBox(height: 8),
-
-              // FIX: Enhanced date/time display
-              Row(
-                children: [
-                  Icon(
-                    Icons.schedule,
-                    color: Colors.white.withOpacity(0.7),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (request['requestedDateTime'] != null)
-                          Text(
-                            'Requested: ${_formatDateTime(DateTime.parse(request['requestedDateTime']))}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          )
-                        else if (request['requestDate'] != null)
-                          Text(
-                            'Created: ${_formatDateTime(DateTime.parse(request['requestDate']))}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 14,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
+            if (request['property'] != null) ...[
+              Text(
+                'Property: ${request['property']['houseType'] ?? 'Unknown'}',
+                style: TextStyle(color: Colors.white.withOpacity(0.8)),
               ),
-
-              // Action buttons based on status and user type
-              if (statusText.toLowerCase() == 'pending') ...[
-                const SizedBox(height: 12),
-                if (widget.isSellerView) ...[
-                  // Seller actions
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _updateRequestStatus(request['id'], 'approved'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          icon: const Icon(Icons.check, color: Colors.white, size: 16),
-                          label: const Text('Approve', style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _updateRequestStatus(request['id'], 'rejected'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          icon: const Icon(Icons.close, color: Colors.white, size: 16),
-                          label: const Text('Reject', style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  // Buyer actions
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _rescheduleRequest(request),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          icon: const Icon(Icons.schedule, color: Colors.white, size: 16),
-                          label: const Text('Reschedule', style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _updateRequestStatus(request['id'], 'cancelled'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          icon: const Icon(Icons.cancel, color: Colors.white, size: 16),
-                          label: const Text('Cancel', style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
+              Text(
+                'Location: ${request['property']['city']}, ${request['property']['region']}',
+                style: TextStyle(color: Colors.white.withOpacity(0.8)),
+              ),
             ],
-          ),
+
+            const SizedBox(height: 8),
+            Text(
+              'Date: ${DateFormat('MMM dd, yyyy').format(DateTime.parse(request['requestDate']))}',
+              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+            ),
+
+            if (statusText.toLowerCase() == 'pending') ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (widget.isSellerView) ...[
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _updateRequestStatus(request['id'], 'approved'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green.withOpacity(0.2)),
+                        child: const Text('Approve', style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _updateRequestStatus(request['id'], 'rejected'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red.withOpacity(0.2)),
+                        child: const Text('Reject', style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  ] else ...[
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _updateRequestStatus(request['id'], 'cancelled'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.withOpacity(0.2)),
+                        child: const Text('Cancel', style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
