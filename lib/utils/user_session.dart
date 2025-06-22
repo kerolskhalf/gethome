@@ -1,63 +1,105 @@
-// lib/utils/user_session.dart
+// lib/utils/user_session.dart - FIXED VERSION
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+
 class UserSession {
   static Map<String, dynamic>? _currentUser;
 
-  // Store user data globally
+  // Initialize user session with data
   static void setCurrentUser(Map<String, dynamic> userData) {
-    _currentUser = userData;
-    print('=== USER SESSION SET ===');
-    print('Raw userData: $userData');
-    print('Role from userData: ${userData['role']}');
-    print('Role type: ${userData['role'].runtimeType}');
+    print('=== SETTING USER SESSION ===');
+    print('Input userData: $userData');
+
+    // Ensure role is properly formatted
+    String role = '';
+    if (userData['role'] != null) {
+      if (userData['role'] is int) {
+        // Convert backend enum to string
+        role = userData['role'] == 0 ? 'seller' : 'buyer';
+      } else {
+        role = userData['role'].toString().toLowerCase().trim();
+      }
+    }
+
+    _currentUser = {
+      'userId': userData['userId'] ?? userData['id'] ?? 0,
+      'fullName': userData['fullName'] ?? userData['name'] ?? 'User',
+      'email': userData['email'] ?? '',
+      'role': role, // Ensure lowercase role
+      'phoneNumber': userData['phoneNumber'],
+    };
+
+    print('Stored user data: $_currentUser');
+    print('Final role: "${_currentUser!['role']}"');
     print('========================');
+
+    // Persist to SharedPreferences
+    _persistUserSession();
   }
 
-  // Get current user data
-  static Map<String, dynamic>? getCurrentUser() {
-    return _currentUser;
+  // Persist user session to SharedPreferences
+  static Future<void> _persistUserSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_currentUser != null) {
+        await prefs.setString('user_session', json.encode(_currentUser));
+        print('✅ User session persisted to SharedPreferences');
+      }
+    } catch (e) {
+      print('❌ Failed to persist user session: $e');
+    }
+  }
+
+  // Load user session from SharedPreferences
+  static Future<bool> loadUserSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionData = prefs.getString('user_session');
+
+      if (sessionData != null) {
+        _currentUser = json.decode(sessionData);
+        print('✅ User session loaded from SharedPreferences: $_currentUser');
+        return true;
+      }
+    } catch (e) {
+      print('❌ Failed to load user session: $e');
+    }
+    return false;
+  }
+
+  // Clear user session from memory and SharedPreferences
+  static Future<void> clearSession() async {
+    print('🗑️ Clearing user session');
+    _currentUser = null;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('user_session');
+      print('✅ User session cleared from SharedPreferences');
+    } catch (e) {
+      print('❌ Failed to clear SharedPreferences: $e');
+    }
   }
 
   // Get current user ID
   static int getCurrentUserId() {
     if (_currentUser == null) {
-      print('Warning: No user session found');
+      print('⚠️ getCurrentUserId: No current user');
       return 0;
     }
-
-    final userId = _currentUser!['userId'];
-    if (userId is int) return userId;
-    if (userId is String) return int.tryParse(userId) ?? 0;
-
-    print('Warning: Invalid userId format: $userId');
-    return 0;
+    final userId = _currentUser!['userId'] ?? 0;
+    return userId is int ? userId : int.tryParse(userId.toString()) ?? 0;
   }
 
-  // FIX: Enhanced role handling with debugging
+  // Get current user role with enhanced debugging
   static String getCurrentUserRole() {
     if (_currentUser == null) {
-      print('UserSession: No current user, defaulting to buyer');
+      print('⚠️ getCurrentUserRole: No current user, returning "buyer"');
       return 'buyer';
     }
-
-    final rawRole = _currentUser!['role'];
-    print('UserSession: Raw role from storage: $rawRole (type: ${rawRole.runtimeType})');
-
-    if (rawRole == null) {
-      print('UserSession: Role is null, defaulting to buyer');
-      return 'buyer';
-    }
-
-    final role = rawRole.toString().toLowerCase().trim();
-    print('UserSession: Processed role: "$role"');
-
-    // Ensure we only return valid roles
-    if (role == 'seller' || role == 'buyer') {
-      print('UserSession: Returning valid role: $role');
-      return role;
-    } else {
-      print('UserSession: Invalid role "$role", defaulting to buyer');
-      return 'buyer';
-    }
+    final role = _currentUser!['role']?.toString().toLowerCase().trim() ?? 'buyer';
+    print('📋 Current user role: "$role"');
+    return role;
   }
 
   // Get current user name
@@ -82,52 +124,61 @@ class UserSession {
   // Check if user is logged in
   static bool isLoggedIn() {
     final isLoggedIn = _currentUser != null && getCurrentUserId() > 0;
-    print('User logged in: $isLoggedIn (UserId: ${getCurrentUserId()})'); // Debug print
+    print('🔐 User logged in: $isLoggedIn (UserId: ${getCurrentUserId()})');
     return isLoggedIn;
-  }
-
-  // Clear user session (logout)
-  static void clearSession() {
-    print('Clearing user session');
-    _currentUser = null;
   }
 
   // Check if current user is seller
   static bool isSeller() {
     final role = getCurrentUserRole();
-    final result = role.toLowerCase() == 'seller';
-    print('UserSession: isSeller() = $result (role: $role)');
+    final result = role == 'seller';
+    print('🏪 UserSession: isSeller() = $result (role: "$role")');
     return result;
   }
 
   // Check if current user is buyer
   static bool isBuyer() {
     final role = getCurrentUserRole();
-    final result = role.toLowerCase() == 'buyer';
-    print('UserSession: isBuyer() = $result (role: $role)');
+    final result = role == 'buyer';
+    print('🛒 UserSession: isBuyer() = $result (role: "$role")');
     return result;
   }
 
-  // Update user role (for role switching)
-  static void updateUserRole(String newRole) {
+  // FIXED: Update user role with proper persistence
+  static Future<void> updateUserRole(String newRole) async {
     if (_currentUser != null) {
       final normalizedRole = newRole.toLowerCase().trim();
       _currentUser!['role'] = normalizedRole;
-      print('User role updated to: $normalizedRole');
+
+      print('🔄 User role updated to: "$normalizedRole"');
+
+      // Persist the updated session
+      await _persistUserSession();
+
+      // Verify the update
+      print('✅ Role verification: getCurrentUserRole() = "${getCurrentUserRole()}"');
+    } else {
+      print('❌ Cannot update role: No current user session');
     }
   }
 
-  // Update user profile information
-  static void updateUserProfile({
+  // Update user profile information with persistence
+  static Future<void> updateUserProfile({
     String? fullName,
     String? email,
     String? phoneNumber,
-  }) {
+  }) async {
     if (_currentUser != null) {
       if (fullName != null) _currentUser!['fullName'] = fullName;
       if (email != null) _currentUser!['email'] = email;
       if (phoneNumber != null) _currentUser!['phoneNumber'] = phoneNumber;
-      print('User profile updated: $_currentUser');
+
+      print('📝 User profile updated: $_currentUser');
+
+      // Persist the updated session
+      await _persistUserSession();
+    } else {
+      print('❌ Cannot update profile: No current user session');
     }
   }
 
@@ -155,32 +206,20 @@ class UserSession {
     return parts.isNotEmpty ? parts[0] : 'User';
   }
 
-  // Validate session
-  static bool validateSession() {
-    final isValid = _currentUser != null &&
-        getCurrentUserId() > 0 &&
-        getCurrentUserName().isNotEmpty &&
-        getCurrentUserEmail().isNotEmpty;
-
-    if (!isValid) {
-      print('Session validation failed: $_currentUser');
-    }
-
-    return isValid;
-  }
-
-  // FIX: Enhanced debug method
+  // Debug method to print current session state
   static void debugPrintSession() {
     print('=== USER SESSION DEBUG ===');
-    print('Current User: $_currentUser');
+    print('Current user: $_currentUser');
     print('User ID: ${getCurrentUserId()}');
-    print('User Role: ${getCurrentUserRole()}');
-    print('User Name: ${getCurrentUserName()}');
-    print('User Email: ${getCurrentUserEmail()}');
-    print('Is Logged In: ${isLoggedIn()}');
-    print('Is Buyer: ${isBuyer()}');
-    print('Is Seller: ${isSeller()}');
-    print('Session Valid: ${validateSession()}');
+    print('Role: "${getCurrentUserRole()}"');
+    print('Is logged in: ${isLoggedIn()}');
+    print('Is seller: ${isSeller()}');
+    print('Is buyer: ${isBuyer()}');
     print('========================');
+  }
+
+  // Get current user data (for external use)
+  static Map<String, dynamic>? getCurrentUser() {
+    return _currentUser != null ? Map<String, dynamic>.from(_currentUser!) : null;
   }
 }

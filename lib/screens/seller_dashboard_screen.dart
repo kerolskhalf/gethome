@@ -1,10 +1,9 @@
-// lib/screens/seller_dashboard_focused.dart
+// lib/screens/seller_dashboard_screen.dart - FIXED VERSION
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
-import 'viewing_requests_screen.dart';
 import 'user_profile_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
@@ -72,7 +71,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const EnhancedAddPropertyScreen(),
+        builder: (context) => const AddPropertyScreen(),
       ),
     );
 
@@ -105,8 +104,8 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
     );
   }
 
-  void _logout() {
-    showDialog(
+  void _logout() async {
+    final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF234E70),
@@ -121,21 +120,14 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text(
               'Cancel',
               style: TextStyle(color: Colors.white70),
             ),
           ),
           TextButton(
-            onPressed: () {
-              UserSession.clearSession();
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-              );
-            },
+            onPressed: () => Navigator.pop(context, true),
             child: const Text(
               'Logout',
               style: TextStyle(color: Colors.red),
@@ -144,6 +136,17 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
         ],
       ),
     );
+
+    if (shouldLogout == true) {
+      await UserSession.clearSession();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+              (route) => false,
+        );
+      }
+    }
   }
 
   @override
@@ -460,7 +463,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
-                    child: _buildPropertyImage(property['imagePath']),
+                    child: _buildPropertyImage(property['coverImageUrl'] ?? property['imagePath']),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -503,7 +506,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${property['city']}, ${property['region']}',
+                        '${property['city'] ?? ''}, ${property['region'] ?? ''}',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 14,
@@ -514,7 +517,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            '\$${property['price']}',
+                            '${_formatPrice(property['price'])} EGP',
                             style: const TextStyle(
                               color: Colors.orange,
                               fontSize: 18,
@@ -522,7 +525,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                             ),
                           ),
                           Text(
-                            '${property['size']} m² • ${property['bedrooms']} beds',
+                            '${property['size'] ?? 0} m² • ${property['bedrooms'] ?? 0} beds',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
@@ -542,7 +545,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
   }
 
   Widget _buildPropertyImage(String? imagePath) {
-    if (!ApiConfig.isValidImagePath(imagePath)) {
+    if (imagePath == null || imagePath.isEmpty) {
       return Container(
         color: Colors.grey[400],
         child: const Icon(Icons.home, color: Colors.grey, size: 40),
@@ -559,6 +562,25 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
           child: const Icon(Icons.broken_image, color: Colors.grey, size: 40),
         );
       },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatPrice(dynamic price) {
+    if (price == null) return '0';
+
+    final priceValue = price is String ? double.tryParse(price) ?? 0 : price.toDouble();
+    return priceValue.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]},',
     );
   }
 

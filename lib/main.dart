@@ -1,6 +1,9 @@
-// lib/main.dart
+// lib/main.dart - FIXED VERSION with UserSession Loading
 import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
+import 'screens/buyer_dashboard_screen.dart';
+import 'screens/seller_dashboard_screen.dart';
+import 'utils/user_session.dart';
 
 void main() {
   runApp(const GetHomeApp());
@@ -50,112 +53,145 @@ class GetHomeApp extends StatelessWidget {
           ),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
-            vertical: 16,
-          ),
-          filled: true,
-          fillColor: Colors.grey[50],
-        ),
-
-        cardTheme: CardTheme(
-          elevation: 4,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        ),
-
-        dialogTheme: DialogTheme(
-          backgroundColor: const Color(0xFF234E70),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          titleTextStyle: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-          contentTextStyle: const TextStyle(
-            color: Colors.white70,
-            fontSize: 16,
-          ),
-        ),
-
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          contentTextStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-
-        // Custom color scheme
-        colorScheme: const ColorScheme.light(
-          primary: Color(0xFF1a237e),
-          secondary: Color(0xFF234E70),
-          surface: Colors.white,
-          background: Color(0xFFF5F5F5),
-          error: Colors.red,
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
-          onSurface: Colors.black87,
-          onBackground: Colors.black87,
-          onError: Colors.white,
-        ),
-
-        // Text theme
-        textTheme: const TextTheme(
-          headlineLarge: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-          headlineMedium: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-          titleLarge: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-          titleMedium: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
-          ),
-          bodyLarge: TextStyle(
-            fontSize: 16,
-            color: Colors.black87,
-          ),
-          bodyMedium: TextStyle(
-            fontSize: 14,
-            color: Colors.black87,
-          ),
-          labelLarge: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
+            vertical: 12,
           ),
         ),
       ),
 
-      // Start with login screen
-      home: const LoginScreen(),
+      // FIXED: Use SplashScreen to load UserSession before showing main content
+      home: const SplashScreen(),
+    );
+  }
+}
 
-      // Global navigation
-      navigatorKey: GlobalKey<NavigatorState>(),
+// FIXED: New SplashScreen class to handle UserSession loading
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({Key? key}) : super(key: key);
 
-      // Handle system UI overlay style
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
-          child: child!,
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    // Show splash screen for a minimum duration
+    await Future.delayed(const Duration(seconds: 2));
+
+    // Load user session from SharedPreferences
+    bool hasSession = await UserSession.loadUserSession();
+
+    if (!mounted) return;
+
+    if (hasSession && UserSession.isLoggedIn()) {
+      // User is logged in, navigate to appropriate dashboard
+      print('=== USER SESSION LOADED ===');
+      UserSession.debugPrintSession();
+
+      final currentRole = UserSession.getCurrentUserRole().toLowerCase();
+      print('Navigating to dashboard for role: $currentRole');
+
+      if (currentRole == 'seller') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const SellerDashboardFocused(),
+          ),
         );
-      },
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const BuyerDashboardScreen(),
+          ),
+        );
+      }
+    } else {
+      // No valid session, go to login
+      print('No valid session found, going to login');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const LoginScreen(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1a237e),
+              Color(0xFF234E70),
+              Color(0xFF305F80),
+            ],
+            stops: [0.2, 0.6, 0.9],
+          ),
+        ),
+        child:  Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // App Logo
+              Container(
+                padding: EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.home_work,
+                  size: 64,
+                  color: Colors.white,
+                ),
+              ),
+
+              SizedBox(height: 32),
+
+              // App Name
+              Text(
+                'GetHome',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+
+              SizedBox(height: 16),
+
+              Text(
+                'Your Real Estate Solution',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w300,
+                ),
+              ),
+
+              SizedBox(height: 48),
+
+              // Loading Indicator
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 3,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
