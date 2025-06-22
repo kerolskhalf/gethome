@@ -9,6 +9,9 @@
     <!-- Phone call permission -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- Camera permission -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:label="gethome"
         android:name="${applicationName}"
