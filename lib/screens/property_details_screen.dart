@@ -1,5 +1,4 @@
-// lib/screens/property_details_screen.dart - ENHANCED WITH BEAUTIFUL UI
-import 'dart:ui';
+// lib/screens/property_details_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;

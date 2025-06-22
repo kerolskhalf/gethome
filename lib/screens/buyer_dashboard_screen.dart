@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'property_details_screen.dart';
 import 'property_comparison_screen.dart';
 import 'favorites_screen.dart';
-import 'map_screen.dart';
 import 'user_profile_screen.dart';
 import 'viewing_requests_screen.dart';
 import '../utils/user_session.dart';
@@ -1676,8 +1675,8 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             label: 'Favorites',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
+            icon: Icon(Icons.assignment),
+            label: 'My Requests',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
@@ -1697,7 +1696,7 @@ class _BuyerDashboardScreenState extends State<BuyerDashboardScreen> {
             case 2:
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const MapScreen()),
+                MaterialPageRoute(builder: (context) => const ViewingRequestsScreen()),
               );
               break;
             case 3:
