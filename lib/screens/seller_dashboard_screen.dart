@@ -1,9 +1,10 @@
-// lib/screens/seller_dashboard_screen.dart - FIXED VERSION
+// lib/screens/seller_dashboard_focused.dart
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'add_property_screen.dart';
 import 'property_details_screen_seller.dart';
+import 'viewing_requests_screen.dart';
 import 'user_profile_screen.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
@@ -91,7 +92,6 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
     );
   }
 
-  // FIXED: Navigation to PropertyDetailsScreenSeller with proper constructor call
   void _viewPropertyDetails(Map<String, dynamic> property) {
     Navigator.push(
       context,
@@ -105,8 +105,8 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
     );
   }
 
-  void _logout() async {
-    final shouldLogout = await showDialog<bool>(
+  void _logout() {
+    showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF234E70),
@@ -121,25 +121,29 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+            onPressed: () {
+              UserSession.clearSession();
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+              );
+            },
+            child: const Text(
+              'Logout',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
     );
-
-    if (shouldLogout == true) {
-      UserSession.clearSession();
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-            (route) => false,
-      );
-    }
   }
 
   @override
@@ -163,209 +167,267 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
             children: [
               _buildHeader(),
               Expanded(
-                child: _isLoading
-                    ? _buildLoadingState()
-                    : _errorMessage != null
-                    ? _buildErrorState()
-                    : _buildPropertiesList(),
+                child: _buildBody(),
               ),
             ],
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addNewApartment,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1a237e),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Property'),
+      // Prominent Add Apartment FAB
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Colors.orange, Colors.deepOrange],
+          ),
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.orange.withOpacity(0.4),
+              blurRadius: 15,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: _addNewApartment,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          icon: const Icon(Icons.add_home_work, color: Colors.white, size: 28),
+          label: const Text(
+            'Add New Apartment',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
   Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
+        ),
+      ),
       child: Row(
         children: [
-          const Text(
-            'My Properties',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: Colors.orange.withOpacity(0.3),
+            child: Text(
+              UserSession.getUserInitials(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
             ),
           ),
-          const Spacer(),
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const UserProfileScreen(),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Seller Dashboard',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
                 ),
-              );
-            },
-            icon: const Icon(Icons.person, color: Colors.white),
-          ),
-          IconButton(
-            onPressed: _logout,
-            icon: const Icon(Icons.logout, color: Colors.white),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLoadingState() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: Colors.white),
-          SizedBox(height: 16),
-          Text(
-            'Loading your properties...',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
+                Text(
+                  'Welcome, ${UserSession.getDisplayName()}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '${_properties.length} apartments listed',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _loadUserProperties,
+            tooltip: 'Refresh',
+          ),
+          IconButton(
+            icon: const Icon(Icons.person, color: Colors.white),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+            ),
+            tooltip: 'Profile',
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: _logout,
+            tooltip: 'Logout',
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.red.withOpacity(0.3)),
-              ),
-              child: const Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Oops! Something went wrong',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
             Text(
-              _errorMessage!,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 14,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadUserProperties,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.2),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              ),
-              child: const Text('Try Again', style: TextStyle(color: Colors.white)),
+              'Loading your apartments...',
+              style: TextStyle(color: Colors.white),
             ),
           ],
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  Widget _buildPropertiesList() {
-    if (_properties.isEmpty) {
-      return _buildEmptyState();
+    if (_errorMessage != null) {
+      return _buildErrorState();
     }
 
     return RefreshIndicator(
       onRefresh: _loadUserProperties,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _properties.length,
-        itemBuilder: (context, index) {
-          final property = _properties[index];
-          return _buildPropertyCard(property);
-        },
+      color: Colors.orange,
+      child: CustomScrollView(
+        slivers: [
+          // Add New Apartment Prominent Card
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _buildAddApartmentCard(),
+            ),
+          ),
+
+          // Properties List or Empty State
+          if (_properties.isEmpty)
+            SliverFillRemaining(child: _buildEmptyState())
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                      (context, index) => _buildPropertyCard(_properties[index]),
+                  childCount: _properties.length,
+                ),
+              ),
+            ),
+
+          // Bottom padding for FAB
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 100),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withOpacity(0.3)),
-              ),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.home_outlined,
-                    size: 80,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No properties yet',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Start building your property portfolio\nby adding your first property',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 16,
-                      height: 1.4,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _addNewApartment,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Your First Property'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF1a237e),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget _buildAddApartmentCard() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.orange.withOpacity(0.3),
+            Colors.deepOrange.withOpacity(0.2),
           ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _addNewApartment,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.add_home_work,
+                    color: Colors.white,
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Add New Apartment',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Upload photos, set details, and get AI-powered price predictions',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Text(
+                          'Tap to start →',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -398,7 +460,7 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
-                    child: _buildPropertyImage(property['coverImageUrl'] ?? property['imagePath']),
+                    child: _buildPropertyImage(property['imagePath']),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -412,10 +474,10 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            property['propertyType'] ?? property['houseType'] ?? 'Property',
+                            property['houseType'] ?? 'Apartment',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 18,
+                              fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -425,13 +487,11 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: property['isAvailable'] == true
-                                  ? Colors.green.withOpacity(0.7)
-                                  : Colors.orange.withOpacity(0.7),
-                              borderRadius: BorderRadius.circular(12),
+                              color: _getStatusColor(property['status']),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              property['isAvailable'] == true ? 'Available' : 'Not Available',
+                              _getStatusText(property['status']),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 10,
@@ -441,42 +501,37 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
-                        '${_formatLocation(property['city'])} • ${_formatLocation(property['region'])}',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
+                        '${property['city']}, ${property['region']}',
+                        style: const TextStyle(
+                          color: Colors.white70,
                           fontSize: 14,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _buildPropertyDetail(Icons.square_foot, '${property['size'] ?? 0} m²'),
-                          const SizedBox(width: 16),
-                          _buildPropertyDetail(Icons.bed, '${property['bedrooms'] ?? 0}'),
-                          const SizedBox(width: 16),
-                          _buildPropertyDetail(Icons.bathroom, '${property['bathrooms'] ?? 0}'),
+                          Text(
+                            '\$${property['price']}',
+                            style: const TextStyle(
+                              color: Colors.orange,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${property['size']} m² • ${property['bedrooms']} beds',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '\$${_formatPrice(property['price'])}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
                       ),
                     ],
                   ),
-                ),
-
-                // Arrow Icon
-                Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.white.withOpacity(0.5),
-                  size: 16,
                 ),
               ],
             ),
@@ -486,82 +541,132 @@ class _SellerDashboardFocusedState extends State<SellerDashboardFocused> {
     );
   }
 
-  Widget _buildPropertyImage(String? imageUrl) {
-    if (imageUrl == null || imageUrl.isEmpty) {
+  Widget _buildPropertyImage(String? imagePath) {
+    if (!ApiConfig.isValidImagePath(imagePath)) {
       return Container(
-        color: Colors.grey[300],
-        child: const Icon(
-          Icons.home,
-          color: Colors.grey,
-          size: 40,
-        ),
+        color: Colors.grey[400],
+        child: const Icon(Icons.home, color: Colors.grey, size: 40),
       );
     }
 
+    final imageUrl = ApiConfig.getImageUrl(imagePath);
     return Image.network(
-      ApiConfig.getImageUrl(imageUrl),
+      imageUrl,
       fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
       errorBuilder: (context, error, stackTrace) {
         return Container(
-          color: Colors.grey[300],
-          child: const Icon(
-            Icons.error,
-            color: Colors.red,
-            size: 30,
-          ),
-        );
-      },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Container(
-          color: Colors.grey[300],
-          child: const Center(
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
+          color: Colors.grey[400],
+          child: const Icon(Icons.broken_image, color: Colors.grey, size: 40),
         );
       },
     );
   }
 
-  Widget _buildPropertyDetail(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: Colors.white.withOpacity(0.7),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.7),
-            fontSize: 12,
+  String _getStatusText(dynamic status) {
+    if (status == 0 || status == 'Available') return 'Available';
+    if (status == 1 || status == 'NotAvailable') return 'Not Available';
+    return 'Unknown';
+  }
+
+  Color _getStatusColor(dynamic status) {
+    if (status == 0 || status == 'Available') return Colors.green;
+    if (status == 1 || status == 'NotAvailable') return Colors.red;
+    return Colors.grey;
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Colors.white60,
           ),
-        ),
-      ],
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage!,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadUserProperties,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+            ),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 
-  String _formatLocation(String? location) {
-    if (location == null || location.isEmpty) return 'Unknown';
-    return location
-        .split('_')
-        .map((word) => word[0].toUpperCase() + word.substring(1))
-        .join(' ');
-  }
-
-  String _formatPrice(dynamic price) {
-    if (price == null) return '0';
-    final numPrice = price is String ? double.tryParse(price) ?? 0 : price.toDouble();
-    if (numPrice >= 1000000) {
-      return '${(numPrice / 1000000).toStringAsFixed(1)}M';
-    } else if (numPrice >= 1000) {
-      return '${(numPrice / 1000).toStringAsFixed(0)}K';
-    }
-    return numPrice.toStringAsFixed(0);
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.home_work_outlined,
+              size: 64,
+              color: Colors.white60,
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'No Apartments Listed Yet',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Tap the "Add New Apartment" button\nto list your first property',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton.icon(
+            onPressed: _addNewApartment,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+            ),
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: const Text(
+              'Add Your First Apartment',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
