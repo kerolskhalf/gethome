@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:url_launcher/url_launcher.dart';
 import '../utils/user_session.dart';
 import '../utils/api_config.dart';
 
@@ -366,36 +367,83 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
               child: const Icon(Icons.contacts, color: Colors.white),
             ),
             const SizedBox(width: 12),
-            const Text(
-              'Seller Contact',
-              style: TextStyle(color: Colors.white),
+            const Expanded(
+              child: Text(
+                'Seller Contact Information',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (contactData['sellerPhoneNumber'] != null)
+            const Text(
+              'Choose how you\'d like to contact the seller:',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            if (contactData['sellerPhoneNumber'] != null) ...[
               _buildContactOption(
                 Icons.phone,
-                'Phone Number',
+                'Call Seller',
                 contactData['sellerPhoneNumber'].toString(),
                 onTap: () => _initiateCall(contactData['sellerPhoneNumber'].toString()),
               ),
-            if (contactData['sellerPhoneNumber'] != null) const SizedBox(height: 16),
-            if (contactData['sellerEmail'] != null)
+              const SizedBox(height: 16),
+            ],
+            if (contactData['sellerEmail'] != null) ...[
               _buildContactOption(
                 Icons.email,
-                'Email',
+                'Send Email',
                 contactData['sellerEmail'].toString(),
                 onTap: () => _initiateEmail(contactData['sellerEmail'].toString()),
+              ),
+            ],
+            if (contactData['sellerPhoneNumber'] == null && contactData['sellerEmail'] == null)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'No contact information available for this property.',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.white70)),
+            child: const Text(
+              'Close',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -409,21 +457,26 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
+          gradient: LinearGradient(
+            colors: [
+              Colors.white.withOpacity(0.15),
+              Colors.white.withOpacity(0.05),
+            ],
+          ),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withOpacity(0.2)),
         ),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: Colors.white, size: 20),
+              child: Icon(icon, color: Colors.white, size: 22),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,24 +486,31 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                      fontSize: 16,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Text(
                     value,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
-                      fontSize: 12,
+                      fontSize: 14,
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.white.withOpacity(0.5),
-              size: 16,
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.touch_app,
+                color: Colors.green,
+                size: 18,
+              ),
             ),
           ],
         ),
@@ -458,14 +518,49 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     );
   }
 
-  void _initiateCall(String phoneNumber) {
-    Navigator.pop(context);
-    _showSuccessMessage('Opening phone app to call $phoneNumber');
+  void _initiateCall(String phoneNumber) async {
+    try {
+      Navigator.pop(context); // Close the dialog first
+
+      // Clean the phone number (remove spaces, dashes, etc.)
+      final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+      final telUrl = 'tel:$cleanNumber';
+
+      if (await canLaunchUrl(Uri.parse(telUrl))) {
+        await launchUrl(
+          Uri.parse(telUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        _showErrorMessage('Unable to make phone call. Please dial $phoneNumber manually.');
+      }
+    } catch (e) {
+      print('Error making phone call: $e');
+      _showErrorMessage('Error making phone call: ${e.toString()}');
+    }
   }
 
-  void _initiateEmail(String email) {
-    Navigator.pop(context);
-    _showSuccessMessage('Opening email app for $email');
+  void _initiateEmail(String email) async {
+    try {
+      Navigator.pop(context); // Close the dialog first
+
+      final subject = Uri.encodeComponent('Inquiry about Property ID: ${widget.property['id']}');
+      final body = Uri.encodeComponent('Hello,\n\nI am interested in your property (ID: ${widget.property['id']}) - ${widget.property['houseType']} in ${widget.property['city']}.\n\nPlease let me know more details.\n\nThank you.');
+
+      final emailUrl = 'mailto:$email?subject=$subject&body=$body';
+
+      if (await canLaunchUrl(Uri.parse(emailUrl))) {
+        await launchUrl(
+          Uri.parse(emailUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        _showErrorMessage('Unable to open email app. Please email $email manually.');
+      }
+    } catch (e) {
+      print('Error opening email: $e');
+      _showErrorMessage('Error opening email: ${e.toString()}');
+    }
   }
 
   void _showErrorMessage(String message) {
@@ -692,8 +787,24 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                     Container(
                       margin: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(12),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.black.withOpacity(0.4),
+                            Colors.black.withOpacity(0.2),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: _isCheckingFavorite
                           ? const Padding(
@@ -713,10 +824,19 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                           builder: (context, child) {
                             return Transform.scale(
                               scale: _favoriteScaleAnimation.value,
-                              child: Icon(
-                                _isSaved ? Icons.favorite : Icons.favorite_border,
-                                color: _isSaved ? Colors.red : Colors.white,
-                                size: 28,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: _isSaved
+                                      ? Colors.red.withOpacity(0.2)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  _isSaved ? Icons.favorite : Icons.favorite_border,
+                                  color: _isSaved ? Colors.red : Colors.white,
+                                  size: 26,
+                                ),
                               ),
                             );
                           },
@@ -747,6 +867,8 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _buildPropertyHeader(),
+                          const SizedBox(height: 24),
+                          _buildLocationSection(),
                           const SizedBox(height: 24),
                           _buildPropertyFeatures(),
                           const SizedBox(height: 24),
@@ -917,13 +1039,20 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     );
   }
 
-  Widget _buildPropertyFeatures() {
+  Widget _buildLocationSection() {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -936,7 +1065,247 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Location',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.location_city,
+                      color: Colors.white.withOpacity(0.8),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'City',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      widget.property['city'] ?? 'N/A',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.map,
+                      color: Colors.white.withOpacity(0.8),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Region',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      widget.property['region'] ?? 'N/A',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                if (widget.property['address'] != null) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.home,
+                        color: Colors.white.withOpacity(0.8),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Address',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const Spacer(),
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          widget.property['address'].toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Location Button
+          InkWell(
+            onTap: _openLocationOnMap,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.blue.withOpacity(0.3),
+                    Colors.purple.withOpacity(0.3),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withOpacity(0.4)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.map,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'View Location on Map',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.white,
+                    size: 14,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openLocationOnMap() async {
+    try {
+      final city = widget.property['city'] ?? '';
+      final region = widget.property['region'] ?? '';
+      final address = widget.property['address'] ?? '';
+
+      // Create search query for the location
+      String locationQuery = '';
+      if (address.isNotEmpty) {
+        locationQuery = address;
+      } else if (city.isNotEmpty && region.isNotEmpty) {
+        locationQuery = '$city, $region';
+      } else if (city.isNotEmpty) {
+        locationQuery = city;
+      } else {
+        _showErrorMessage('Location information not available');
+        return;
+      }
+
+      // Encode the query for URL
+      final encodedQuery = Uri.encodeComponent(locationQuery);
+
+      // Try to open Google Maps first
+      final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$encodedQuery';
+
+      if (await canLaunchUrl(Uri.parse(googleMapsUrl))) {
+        await launchUrl(
+          Uri.parse(googleMapsUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        // Fallback to basic maps URL
+        final fallbackUrl = 'https://maps.google.com/?q=$encodedQuery';
+        if (await canLaunchUrl(Uri.parse(fallbackUrl))) {
+          await launchUrl(
+            Uri.parse(fallbackUrl),
+            mode: LaunchMode.externalApplication,
+          );
+        } else {
+          _showErrorMessage('Unable to open maps application');
+        }
+      }
+    } catch (e) {
+      print('Error opening map: $e');
+      _showErrorMessage('Error opening map: ${e.toString()}');
+    }
+  }
+
+  Widget _buildPropertyFeatures() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.apartment, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
               const Text(
@@ -953,38 +1322,82 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
           Row(
             children: [
               Expanded(
-                child: _buildFeature(
+                child: _buildFeatureCard(
                   Icons.straighten,
-                  'Size',
                   '${widget.property['size'] ?? 0} m²',
+                  const Color(0xFFFF8C00), // Orange
                 ),
               ),
+              const SizedBox(width: 12),
               Expanded(
-                child: _buildFeature(
-                  Icons.king_bed,
-                  'Bedrooms',
+                child: _buildFeatureCard(
+                  Icons.single_bed,
                   '${widget.property['bedrooms'] ?? 0}',
-                ),
-              ),
-              Expanded(
-                child: _buildFeature(
-                  Icons.bathtub,
-                  'Bathrooms',
-                  '${widget.property['bathrooms'] ?? 0}',
+                  const Color(0xFF32CD32), // Green
                 ),
               ),
             ],
           ),
-          if (widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0) ...[
-            const SizedBox(height: 20),
-            Center(
-              child: _buildFeature(
-                Icons.room,
-                'Total Rooms',
-                '${widget.property['totalRooms']}',
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildFeatureCard(
+                  Icons.bathtub_outlined,
+                  '${widget.property['bathrooms'] ?? 0}',
+                  const Color(0xFF1E90FF), // Blue
+                ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildFeatureCard(
+                  Icons.room_outlined,
+                  widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0
+                      ? '${widget.property['totalRooms']}'
+                      : '${widget.property['floor'] ?? 0}',
+                  const Color(0xFF9932CC), // Purple
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeatureCard(IconData icon, String value, Color color) {
+    return Container(
+      height: 80,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: Colors.white,
+            size: 24,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
             ),
-          ],
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
@@ -1098,41 +1511,25 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
   }
 
   Widget _buildActionButtons() {
-    return Column(
+    return Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionButton(
-                'Schedule Viewing',
-                Icons.calendar_today,
-                _isCreatingViewingRequest ? null : _createViewingRequest,
-                isLoading: _isCreatingViewingRequest,
-                color: Colors.blue,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildActionButton(
-                'Contact Seller',
-                Icons.message,
-                _isLoadingContact ? null : _getSellerContact,
-                isLoading: _isLoadingContact,
-                color: Colors.green,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
+        Expanded(
           child: _buildActionButton(
-            _isSaved ? 'Remove from Favorites' : 'Add to Favorites',
-            _isSaved ? Icons.favorite : Icons.favorite_border,
-            _isTogglingFavorite ? null : _toggleFavorite,
-            isLoading: _isTogglingFavorite,
-            color: _isSaved ? Colors.red : Colors.pink,
-            isPrimary: true,
+            'Schedule Viewing',
+            Icons.calendar_today,
+            _isCreatingViewingRequest ? null : _createViewingRequest,
+            isLoading: _isCreatingViewingRequest,
+            color: Colors.blue,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _buildActionButton(
+            'Contact Seller',
+            Icons.message,
+            _isLoadingContact ? null : _getSellerContact,
+            isLoading: _isLoadingContact,
+            color: Colors.green,
           ),
         ),
       ],
