@@ -1,4 +1,4 @@
-// lib/screens/add_property_screen.dart - COMPLETE FIXED VERSION
+// lib/screens/add_property_screen.dart - COMPLETE FIXED VERSION WITH LOCATION FIELD
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -130,11 +130,19 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
       _pricePerM2Controller.text = property['pricePerM2']?.toString() ?? '';
       _floorController.text = _floor.toString();
 
-      // FIXED: Load city and region
-      _selectedCity = property['city']?.toLowerCase();
-      _selectedRegion = property['region']?.toLowerCase();
-      if (_selectedCity != null) {
+      // FIXED: Load city and region with proper case handling
+      final cityFromProperty = property['city']?.toString().toLowerCase();
+      final regionFromProperty = property['region']?.toString().toLowerCase();
+
+      // Validate that the city exists in our mapping
+      if (cityFromProperty != null && cityRegionsMap.containsKey(cityFromProperty)) {
+        _selectedCity = cityFromProperty;
         _availableRegions = cityRegionsMap[_selectedCity] ?? [];
+
+        // Validate that the region exists for this city
+        if (regionFromProperty != null && _availableRegions.contains(regionFromProperty)) {
+          _selectedRegion = regionFromProperty;
+        }
       }
 
       // Load existing images
@@ -430,22 +438,21 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
           ),
           const SizedBox(height: 24),
 
-          // FIXED: City Dropdown
+          // FIXED: City Dropdown with proper formatting
           _buildDropdownField(
             label: 'City',
             icon: Icons.location_city,
-            value: _selectedCity?.split(' ').map((word) =>
-            word[0].toUpperCase() + word.substring(1)
-            ).join(' '),
-            items: cityRegionsMap.keys.map((city) =>
-                city.split(' ').map((word) =>
-                word[0].toUpperCase() + word.substring(1)
-                ).join(' ')
-            ).toList(),
+            value: _selectedCity != null ? _formatDisplayText(_selectedCity!) : null,
+            items: cityRegionsMap.keys.map((city) => _formatDisplayText(city)).toList(),
             onChanged: (String? value) {
               if (value != null) {
+                // Find the original lowercase key that matches the formatted display value
+                final originalKey = cityRegionsMap.keys.firstWhere(
+                      (key) => _formatDisplayText(key) == value,
+                  orElse: () => value.toLowerCase(),
+                );
                 setState(() {
-                  _selectedCity = value.toLowerCase();
+                  _selectedCity = originalKey;
                   _selectedRegion = null;
                   _availableRegions = cityRegionsMap[_selectedCity] ?? [];
                 });
@@ -453,7 +460,7 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
               }
             },
             validator: (value) {
-              if (value == null || value.isEmpty) {
+              if (_selectedCity == null || _selectedCity!.isEmpty) {
                 return 'Please select a city';
               }
               return null;
@@ -466,24 +473,23 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
           _buildDropdownField(
             label: 'Region',
             icon: Icons.place,
-            value: _selectedRegion?.split(' ').map((word) =>
-            word[0].toUpperCase() + word.substring(1)
-            ).join(' '),
-            items: _availableRegions.map((region) =>
-                region.split(' ').map((word) =>
-                word[0].toUpperCase() + word.substring(1)
-                ).join(' ')
-            ).toList(),
+            value: _selectedRegion != null ? _formatDisplayText(_selectedRegion!) : null,
+            items: _availableRegions.map((region) => _formatDisplayText(region)).toList(),
             onChanged: _selectedCity == null ? null : (String? value) {
               if (value != null) {
+                // Find the original lowercase key that matches the formatted display value
+                final originalKey = _availableRegions.firstWhere(
+                      (key) => _formatDisplayText(key) == value,
+                  orElse: () => value.toLowerCase(),
+                );
                 setState(() {
-                  _selectedRegion = value.toLowerCase();
+                  _selectedRegion = originalKey;
                 });
                 _checkForChanges();
               }
             },
             validator: (value) {
-              if (value == null || value.isEmpty) {
+              if (_selectedRegion == null || _selectedRegion!.isEmpty) {
                 return 'Please select a region';
               }
               return null;
@@ -1307,6 +1313,14 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     return true;
   }
 
+  // Helper method to format display text consistently
+  String _formatDisplayText(String text) {
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
+  }
+
   // Helper methods
   void _updateTotalRooms() {
     setState(() {
@@ -1631,6 +1645,9 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
   }
 
   bool _validateBasicInfo() {
+    print('🔍 Validating basic info:');
+    print('   Size controller text: "${_sizeController.text.trim()}"');
+
     if (_sizeController.text.trim().isEmpty) {
       _showMessage('Please enter property size', isError: true);
       return false;
@@ -1638,15 +1655,23 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
 
     // Validate that size is a valid number
     final size = double.tryParse(_sizeController.text.trim());
+    print('   Parsed size: $size');
+
     if (size == null || size <= 0) {
       _showMessage('Please enter a valid property size', isError: true);
       return false;
     }
 
+    print('✅ Basic info validation passed');
     return true;
   }
 
   bool _validateLocationInfo() {
+    print('🔍 Validating location info:');
+    print('   Selected city: $_selectedCity');
+    print('   Selected region: $_selectedRegion');
+    print('   Available regions: $_availableRegions');
+
     if (_selectedCity == null || _selectedCity!.isEmpty) {
       _showMessage('Please select a city', isError: true);
       return false;
@@ -1655,39 +1680,64 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
       _showMessage('Please select a region', isError: true);
       return false;
     }
+
+    print('✅ Location validation passed');
     return true;
   }
 
-  // FIXED: Form submission with proper null checks
+  // FIXED: Form submission with proper validation
   Future<void> _submitForm() async {
+    print('🚀 Submit form called - Current page: $_currentPage');
+
     if (_currentPage < 2) {
       _nextPage();
       return;
     }
 
-    // FIXED: Check if form key is null before validation
-    if (_formKey.currentState == null) {
-      _showMessage('Form validation error. Please try again.', isError: true);
+    print('📋 Final validation for form submission...');
+
+    // FIXED: Validate current page data before final validation
+    if (_currentPage == 0 && !_validateBasicInfo()) {
+      print('❌ Basic info validation failed');
+      return;
+    }
+    if (_currentPage == 1 && !_validateLocationInfo()) {
+      print('❌ Location info validation failed');
       return;
     }
 
-    if (!_formKey.currentState!.validate()) return;
+    // FIXED: Check form validation only for the current page fields
+    if (_formKey.currentState != null) {
+      print('🔍 Running form field validation...');
+      final isFormValid = _formKey.currentState!.validate();
+      print('Form validation result: $isFormValid');
+
+      if (!isFormValid) {
+        print('❌ Form field validation failed');
+        return;
+      }
+    }
 
     // FIXED: Additional validation for required fields
     if (_selectedCity == null || _selectedCity!.isEmpty) {
+      print('❌ City not selected');
       _showMessage('Please select a city', isError: true);
       return;
     }
 
     if (_selectedRegion == null || _selectedRegion!.isEmpty) {
+      print('❌ Region not selected');
       _showMessage('Please select a region', isError: true);
       return;
     }
 
     if (_selectedImages.isEmpty && _existingImageUrls.isEmpty) {
+      print('❌ No images provided');
       _showMessage('Please add at least one photo', isError: true);
       return;
     }
+
+    print('✅ All validations passed, proceeding with form submission...');
 
     if (widget.propertyToEdit != null) {
       await _performUpdateProperty();
@@ -1806,6 +1856,7 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
     }
   }
 
+  // FIXED: Enhanced _prepareFormFields method with location field
   Map<String, String> _prepareFormFields() {
     _calculatePricePerM2();
 
@@ -1836,6 +1887,23 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
       return {};
     }
 
+    // FIXED: Create location string by combining city and region
+    String locationString = '';
+    if (_selectedCity != null && _selectedRegion != null) {
+      // Format the city and region with proper capitalization
+      final formattedCity = _selectedCity!.split(' ').map((word) =>
+      word[0].toUpperCase() + word.substring(1)).join(' ');
+      final formattedRegion = _selectedRegion!.split(' ').map((word) =>
+      word[0].toUpperCase() + word.substring(1)).join(' ');
+
+      locationString = '$formattedRegion, $formattedCity';
+
+      // If map coordinates are available, add them to the location
+      if (_selectedLocation != null && _useMapLocation) {
+        locationString += ' (${_selectedLocation!.latitude.toStringAsFixed(6)}, ${_selectedLocation!.longitude.toStringAsFixed(6)})';
+      }
+    }
+
     final fields = <String, String>{
       'UserId': userId.toString(),
       'HouseType': _propertyType,
@@ -1853,9 +1921,10 @@ class _AddPropertyScreenState extends State<AddPropertyScreen> {
       'PricePerM2': _pricePerM2Controller.text.trim().isEmpty
           ? '0'
           : _pricePerM2Controller.text.trim(),
+      'location': locationString, // FIXED: Added location field
     };
 
-    // Add location if selected
+    // Add location coordinates if selected
     if (_selectedLocation != null && _useMapLocation) {
       fields['Latitude'] = _selectedLocation!.latitude.toString();
       fields['Longitude'] = _selectedLocation!.longitude.toString();

@@ -1,4 +1,4 @@
-// lib/screens/property_details_screen.dart
+// lib/screens/property_details_screen.dart - FIXED WITH IMAGE CAROUSEL
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -22,7 +22,14 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
   bool _isCreatingViewingRequest = false;
   bool _isTogglingFavorite = false;
   bool _isCheckingFavorite = true;
+  bool _isLoadingFullProperty = true;
   Map<String, dynamic>? _contactInfo;
+  Map<String, dynamic> _fullPropertyData = {};
+
+  // ADDED: Image carousel variables
+  late PageController _pageController;
+  int _currentImageIndex = 0;
+  List<Map<String, dynamic>> _allImages = []; // Store images with URLs
 
   late AnimationController _favoriteAnimationController;
   late AnimationController _fadeAnimationController;
@@ -32,8 +39,19 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
+    _fullPropertyData = Map.from(widget.property);
     _initializeAnimations();
+    _loadFullPropertyDetails();
     _checkIfFavorite();
+  }
+
+  @override
+  void dispose() {
+    _favoriteAnimationController.dispose();
+    _fadeAnimationController.dispose();
+    _pageController.dispose();
+    super.dispose();
   }
 
   void _initializeAnimations() {
@@ -65,11 +83,118 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     _fadeAnimationController.forward();
   }
 
-  @override
-  void dispose() {
-    _favoriteAnimationController.dispose();
-    _fadeAnimationController.dispose();
-    super.dispose();
+  // ADDED: Load complete property details with images
+  Future<void> _loadFullPropertyDetails() async {
+    setState(() => _isLoadingFullProperty = true);
+
+    try {
+      final propertyId = widget.property['id'];
+      print('🔄 Loading full property details for ID: $propertyId');
+
+      final response = await http.get(
+        Uri.parse('${ApiConfig.BASE_URL}/api/properties/$propertyId'),
+        headers: ApiConfig.headers,
+      );
+
+      print('📡 Property details response: ${response.statusCode}');
+      print('📋 Property details body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        Map<String, dynamic> propertyData;
+        if (data is Map<String, dynamic>) {
+          if (data.containsKey('data')) {
+            propertyData = data['data'] as Map<String, dynamic>;
+          } else {
+            propertyData = data;
+          }
+        } else {
+          propertyData = widget.property;
+        }
+
+        setState(() {
+          _fullPropertyData = propertyData;
+          _isLoadingFullProperty = false;
+        });
+
+        _loadAllImages();
+      } else {
+        print('❌ Failed to load property details: ${response.statusCode}');
+        setState(() => _isLoadingFullProperty = false);
+        _loadAllImages();
+      }
+    } catch (e) {
+      print('❌ Error loading property details: $e');
+      setState(() => _isLoadingFullProperty = false);
+      _loadAllImages();
+    }
+  }
+
+  // ADDED: Load all images method (similar to seller version)
+  void _loadAllImages() {
+    _allImages.clear();
+
+    print('🖼️ Loading images for property: ${_fullPropertyData['id']}');
+
+    // Load cover image first
+    String? coverImageUrl;
+    if (_fullPropertyData['Coverimage'] != null) {
+      coverImageUrl = _fullPropertyData['Coverimage'].toString();
+    } else if (_fullPropertyData['imagePath'] != null) {
+      final coverImagePath = _fullPropertyData['imagePath'].toString();
+      if (ApiConfig.isValidImagePath(coverImagePath)) {
+        coverImageUrl = ApiConfig.getImageUrl(coverImagePath);
+      }
+    }
+
+    // Add cover image
+    if (coverImageUrl != null && coverImageUrl.isNotEmpty) {
+      _allImages.add({
+        'id': null,
+        'url': coverImageUrl,
+        'isCover': true,
+      });
+    }
+
+    // Load additional images
+    final images = _fullPropertyData['Images'] ?? _fullPropertyData['images'] ?? [];
+
+    if (images != null && images is List) {
+      print('📷 Found ${images.length} additional images');
+
+      for (final image in images) {
+        String? imageUrl;
+        int? imageId;
+
+        if (image is Map) {
+          // Get image ID
+          imageId = image['Id'] ?? image['id'];
+
+          // Get image URL
+          if (image['ImagePath'] != null) {
+            imageUrl = image['ImagePath'].toString();
+          } else if (image['imagePath'] != null) {
+            final imagePath = image['imagePath'].toString();
+            if (ApiConfig.isValidImagePath(imagePath)) {
+              imageUrl = ApiConfig.getImageUrl(imagePath);
+            }
+          }
+        }
+
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          _allImages.add({
+            'id': imageId,
+            'url': imageUrl,
+            'isCover': false,
+          });
+          print('➕ Added image with ID $imageId: $imageUrl');
+        }
+      }
+    }
+
+    print('🎯 Final result: Loaded ${_allImages.length} images total');
+    setState(() {});
   }
 
   // FIXED: Enhanced favorite status checking
@@ -649,86 +774,160 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     return Colors.grey;
   }
 
-  Widget _buildPropertyImage() {
-    final imagePath = widget.property['imagePath'];
-
-    if (!ApiConfig.isValidImagePath(imagePath)) {
+  // ADDED: Image carousel builder (similar to seller version)
+  Widget _buildImageCarousel() {
+    if (_allImages.isEmpty) {
       return Container(
+        height: 320,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.grey[300]!,
-              Colors.grey[400]!,
-            ],
-          ),
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
         ),
         child: const Center(
-          child: Icon(Icons.home, size: 120, color: Colors.white),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image, size: 64, color: Colors.white54),
+              SizedBox(height: 16),
+              Text(
+                'No images available',
+                style: TextStyle(color: Colors.white54, fontSize: 16),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    final imageUrl = ApiConfig.getImageUrl(imagePath);
-    return Stack(
+    return Column(
       children: [
-        Image.network(
-          imageUrl,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.grey[300]!,
-                    Colors.grey[400]!,
+        // Image carousel
+        Container(
+          height: 320,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: PageView.builder(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() => _currentImageIndex = index);
+              },
+              itemCount: _allImages.length,
+              itemBuilder: (context, index) {
+                final imageData = _allImages[index];
+                return Stack(
+                  children: [
+                    // Image
+                    Container(
+                      width: double.infinity,
+                      child: Image.network(
+                        imageData['url'],
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            color: Colors.white.withOpacity(0.1),
+                            child: const Center(
+                              child: CircularProgressIndicator(color: Colors.white),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.white.withOpacity(0.1),
+                            child: const Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.error, size: 48, color: Colors.white54),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Failed to load image',
+                                    style: TextStyle(color: Colors.white54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    // Cover image badge
+                    if (imageData['isCover'] == true)
+                      Positioned(
+                        top: 16,
+                        left: 16,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.8),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Cover',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Image counter
+                    Positioned(
+                      top: 16,
+                      right: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${index + 1} / ${_allImages.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
-                ),
-              ),
-              child: const Center(
-                child: CircularProgressIndicator(color: Colors.white),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.grey[300]!,
-                    Colors.grey[400]!,
-                  ],
-                ),
-              ),
-              child: const Center(
-                child: Icon(Icons.broken_image, size: 120, color: Colors.white),
-              ),
-            );
-          },
-        ),
-        // Gradient overlay for better text readability
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withOpacity(0.3),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        // Image indicators
+        if (_allImages.length > 1)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              _allImages.length,
+                  (index) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: index == _currentImageIndex ? 12 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: index == _currentImageIndex
+                      ? Colors.white
+                      : Colors.white.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -756,131 +955,142 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
               ),
             ),
 
-            // Main content
-            CustomScrollView(
-              slivers: [
-                // Enhanced App Bar with image
-                SliverAppBar(
-                  expandedHeight: 320,
-                  pinned: true,
-                  stretch: true,
-                  flexibleSpace: FlexibleSpaceBar(
-                    background: _buildPropertyImage(),
-                    stretchModes: const [
-                      StretchMode.zoomBackground,
-                      StretchMode.blurBackground,
-                    ],
-                  ),
-                  leading: Container(
-                    margin: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                  actions: [
-                    Container(
-                      margin: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.black.withOpacity(0.4),
-                            Colors.black.withOpacity(0.2),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: _isCheckingFavorite
-                          ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        ),
-                      )
-                          : IconButton(
-                        icon: AnimatedBuilder(
-                          animation: _favoriteScaleAnimation,
-                          builder: (context, child) {
-                            return Transform.scale(
-                              scale: _favoriteScaleAnimation.value,
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: _isSaved
-                                      ? Colors.red.withOpacity(0.2)
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  _isSaved ? Icons.favorite : Icons.favorite_border,
-                                  color: _isSaved ? Colors.red : Colors.white,
-                                  size: 26,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        onPressed: _isTogglingFavorite ? null : _toggleFavorite,
-                      ),
+            // FIXED: Show loading state while loading full property details
+            if (_isLoadingFullProperty)
+              const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: Colors.white),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading property details...',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ],
                 ),
-
-                // Property details with enhanced design
-                SliverToBoxAdapter(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Color(0xFF1a237e),
-                          Color(0xFF234E70),
-                          Color(0xFF305F80),
-                        ],
+              )
+            else
+              CustomScrollView(
+                slivers: [
+                  // Enhanced App Bar with favorite toggle
+                  SliverAppBar(
+                    expandedHeight: 80,
+                    pinned: true,
+                    backgroundColor: Colors.transparent,
+                    leading: Container(
+                      margin: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
                       ),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildPropertyHeader(),
-                          const SizedBox(height: 24),
-                          _buildLocationSection(),
-                          const SizedBox(height: 24),
-                          _buildPropertyFeatures(),
-                          const SizedBox(height: 24),
-                          _buildPropertyInfo(),
-                          const SizedBox(height: 32),
-                          _buildActionButtons(),
-                        ],
+                    actions: [
+                      Container(
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.black.withOpacity(0.4),
+                              Colors.black.withOpacity(0.2),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: _isCheckingFavorite
+                            ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                        )
+                            : IconButton(
+                          icon: AnimatedBuilder(
+                            animation: _favoriteScaleAnimation,
+                            builder: (context, child) {
+                              return Transform.scale(
+                                scale: _favoriteScaleAnimation.value,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: _isSaved
+                                        ? Colors.red.withOpacity(0.2)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    _isSaved ? Icons.favorite : Icons.favorite_border,
+                                    color: _isSaved ? Colors.red : Colors.white,
+                                    size: 26,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          onPressed: _isTogglingFavorite ? null : _toggleFavorite,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Property details with enhanced design
+                  SliverToBoxAdapter(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0xFF1a237e),
+                            Color(0xFF234E70),
+                            Color(0xFF305F80),
+                          ],
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // FIXED: Use image carousel instead of single image
+                            _buildImageCarousel(),
+                            const SizedBox(height: 24),
+                            _buildPropertyHeader(),
+                            const SizedBox(height: 24),
+                            _buildLocationSection(),
+                            const SizedBox(height: 24),
+                            _buildPropertyFeatures(),
+                            const SizedBox(height: 24),
+                            _buildPropertyInfo(),
+                            const SizedBox(height: 32),
+                            _buildActionButtons(),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),
@@ -923,7 +1133,10 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
@@ -1399,43 +1612,6 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildFeature(IconData icon, String label, String value) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 28,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
     );
   }
 
