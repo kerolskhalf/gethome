@@ -1,4 +1,4 @@
-// lib/screens/viewing_requests_screen.dart - TEMPORARY FIX
+// lib/screens/viewing_requests_screen.dart - COMPLETE FILE WITH SELLER FIXES
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -31,15 +31,21 @@ class _ViewingRequestsScreenState extends State<ViewingRequestsScreen> {
     _loadViewingRequests();
   }
 
-  // TEMPORARY: Since backend GET endpoints don't exist yet, show info message
   Future<void> _loadViewingRequests() async {
     setState(() => _isLoading = true);
 
     try {
       print('🔍 Attempting to load viewing requests...');
 
-      // Try the endpoint that should exist
-      String endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
+      // FIXED: Choose endpoint based on propertyId for seller view
+      String endpoint;
+      if (widget.propertyId != null) {
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/property/${widget.propertyId}';
+        print('🏠 Using property-specific endpoint for property ${widget.propertyId}');
+      } else {
+        endpoint = '${ApiConfig.BASE_URL}/api/viewing-requests/user/${UserSession.getCurrentUserId()}';
+        print('👤 Using user-specific endpoint');
+      }
 
       final response = await http.get(
         Uri.parse(endpoint),

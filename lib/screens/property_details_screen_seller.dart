@@ -1,6 +1,5 @@
-// lib/screens/property_details_screen_seller.dart - WITH COMPLETE IMAGE MANAGEMENT
+// lib/screens/property_details_screen_seller.dart - COMPLETE FILE WITH SELLER FIXES
 import 'package:flutter/material.dart';
-import 'package:gethome/screens/seller_dashboard_screen.dart';
 import 'package:gethome/screens/seller_dashboard_screen.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -114,282 +113,103 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
       }
     }
 
-    // Add cover image (no ID for cover image as it's handled separately)
+    // Add cover image
     if (coverImageUrl != null && coverImageUrl.isNotEmpty) {
       _allImages.add({
-        'id': null, // Cover image doesn't have deletable ID
+        'id': null,
         'url': coverImageUrl,
         'isCover': true,
       });
     }
 
-    // Load additional images with IDs
+    // Load additional images
     final images = _fullPropertyData['Images'] ?? _fullPropertyData['images'] ?? [];
-
-    if (images != null && images is List) {
-      print('📷 Found ${images.length} additional images');
-
-      for (final image in images) {
+    if (images is List) {
+      for (var image in images) {
         String? imageUrl;
         int? imageId;
 
-        if (image is Map) {
-          // Get image ID
-          imageId = image['Id'] ?? image['id'];
-
-          // Get image URL
-          if (image['ImagePath'] != null) {
-            imageUrl = image['ImagePath'].toString();
-          } else if (image['imagePath'] != null) {
-            final imagePath = image['imagePath'].toString();
-            if (ApiConfig.isValidImagePath(imagePath)) {
-              imageUrl = ApiConfig.getImageUrl(imagePath);
-            }
+        if (image is Map<String, dynamic>) {
+          imageId = image['id'];
+          final imagePath = image['imagePath'] ?? image['path'];
+          if (imagePath != null && ApiConfig.isValidImagePath(imagePath)) {
+            imageUrl = ApiConfig.getImageUrl(imagePath);
           }
+        } else if (image is String && ApiConfig.isValidImagePath(image)) {
+          imageUrl = ApiConfig.getImageUrl(image);
         }
 
-        if (imageUrl != null && imageUrl.isNotEmpty && imageId != null) {
+        if (imageUrl != null && imageUrl.isNotEmpty) {
           _allImages.add({
             'id': imageId,
             'url': imageUrl,
             'isCover': false,
           });
-          print('➕ Added image with ID $imageId: $imageUrl');
         }
       }
     }
 
-    print('🎯 Final result: Loaded ${_allImages.length} images total');
+    print('📸 Loaded ${_allImages.length} images total');
     setState(() {});
   }
 
-  // Add new image
   Future<void> _addImage() async {
+    setState(() => _isAddingImage = true);
+
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 80,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
       );
 
-      if (image == null) return;
+      if (image == null) {
+        setState(() => _isAddingImage = false);
+        return;
+      }
 
-      setState(() => _isAddingImage = true);
-
-      // Prepare multipart request
+      final propertyId = widget.property['id'];
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('${ApiConfig.BASE_URL}/api/properties/add-image'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/properties/$propertyId/images'),
       );
 
-      // Add headers
-      request.headers.addAll(ApiConfig.headers);
-
-      // Add property ID
-      request.fields['propertyId'] = _fullPropertyData['id'].toString();
-
-      // Add image file
-      request.files.add(
-        await http.MultipartFile.fromPath('image', image.path),
-      );
-
-      print('📤 Uploading image for property: ${_fullPropertyData['id']}');
+      request.headers.addAll(ApiConfig.multipartHeaders);
+      request.files.add(await http.MultipartFile.fromPath('image', image.path));
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      print('📡 Add image response: ${response.statusCode}');
-      print('📋 Add image body: ${response.body}');
-
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        if (responseData['success'] == true) {
-          // Refresh property details to get updated images
-          await _loadFullPropertyDetails();
-          _showSuccessMessage('Image added successfully!');
-        } else {
-          _showErrorMessage('Failed to add image: ${responseData['message']}');
-        }
+        _showSuccessMessage('Image added successfully!');
+        await _loadFullPropertyDetails(); // Reload to get new images
       } else {
-        _showErrorMessage('Failed to add image. Please try again.');
+        _showErrorMessage('Failed to add image');
       }
     } catch (e) {
-      print('❌ Error adding image: $e');
       _showErrorMessage('Error adding image: $e');
     } finally {
       setState(() => _isAddingImage = false);
     }
   }
 
-  // Delete image by ID
-  Future<void> _deleteImage(int imageId, int index) async {
+  Future<void> _deleteImage(int imageId) async {
     try {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF234E70),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: const Text(
-            'Delete Image',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: const Text(
-            'Are you sure you want to delete this image?',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _performImageDeletion(imageId, index);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Delete', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      print('❌ Error showing delete dialog: $e');
-    }
-  }
-
-  Future<void> _performImageDeletion(int imageId, int index) async {
-    try {
-      print('🗑️ Deleting image with ID: $imageId');
-
+      final propertyId = widget.property['id'];
       final response = await http.delete(
-        Uri.parse('${ApiConfig.BASE_URL}/api/properties/remove-image/$imageId'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/properties/$propertyId/images/$imageId'),
         headers: ApiConfig.headers,
       );
 
-      print('📡 Delete image response: ${response.statusCode}');
-      print('📋 Delete image body: ${response.body}');
-
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        if (responseData['success'] == true) {
-          // Remove image from local list
-          setState(() {
-            _allImages.removeAt(index);
-            // Adjust current index if needed
-            if (_currentImageIndex >= _allImages.length && _allImages.isNotEmpty) {
-              _currentImageIndex = _allImages.length - 1;
-              _pageController.animateToPage(
-                _currentImageIndex,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-              );
-            } else if (_allImages.isEmpty) {
-              _currentImageIndex = 0;
-            }
-          });
-          _showSuccessMessage('Image deleted successfully!');
-        } else {
-          _showErrorMessage('Failed to delete image: ${responseData['message']}');
-        }
+        _showSuccessMessage('Image deleted successfully!');
+        await _loadFullPropertyDetails(); // Reload images
       } else {
-        _showErrorMessage('Failed to delete image. Please try again.');
+        _showErrorMessage('Failed to delete image');
       }
     } catch (e) {
-      print('❌ Error deleting image: $e');
       _showErrorMessage('Error deleting image: $e');
-    }
-  }
-
-  void _showSuccessMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _showErrorMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _deleteProperty() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF234E70),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Text(
-          'Delete Property',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'Are you sure you want to delete this property?',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _performPropertyDeletion();
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _performPropertyDeletion() async {
-    setState(() => _isDeleting = true);
-
-    try {
-      final response = await http.delete(
-        Uri.parse('${ApiConfig.BASE_URL}/api/properties/delete/${widget.property['id']}'),
-        headers: ApiConfig.headers,
-      );
-
-      if (response.statusCode == 200) {
-        widget.onDelete();
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Property deleted successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to delete property: ${response.body}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting property: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } finally {
-      setState(() => _isDeleting = false);
     }
   }
 
@@ -399,280 +219,200 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF234E70), Color(0xFF1A3A52)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1a237e),
+              Color(0xFF234E70),
+              Color(0xFF305F80),
+            ],
+            stops: [0.2, 0.6, 0.9],
           ),
         ),
-        child: _isLoadingFullProperty
-            ? const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        )
-            : SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              _buildAppBar(),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildImageCarousel(),
-                      const SizedBox(height: 24),
-                      _buildPropertyFeatures(),
-                      const SizedBox(height: 24),
-                      _buildPropertyInfo(),
-                      const SizedBox(height: 24),
-                      _buildActionButtons(),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+        child: SafeArea(
+          child: _isLoadingFullProperty ? _buildLoadingState() : _buildMainContent(),
         ),
       ),
     );
   }
 
-  Widget _buildAppBar() {
-    return SliverAppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      floating: true,
-      leading: IconButton(
-        onPressed: () => Navigator.pop(context),
-        icon: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildLoadingState() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: Colors.white),
+          SizedBox(height: 16),
+          Text(
+            'Loading property details...',
+            style: TextStyle(color: Colors.white),
           ),
-          child: const Icon(Icons.arrow_back, color: Colors.white),
-        ),
+        ],
       ),
-      actions: [
-        IconButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ViewingRequestsScreen(
-                  propertyId: widget.property['id'],
-                ),
-              ),
-            );
-          },
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
+    );
+  }
+
+  Widget _buildMainContent() {
+    return CustomScrollView(
+      slivers: [
+        _buildImageSlider(),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildPropertyHeader(),
+                const SizedBox(height: 24),
+                _buildPropertyFeatures(),
+                const SizedBox(height: 24),
+                _buildPropertyInfo(),
+                const SizedBox(height: 24),
+                _buildImageManagement(),
+                const SizedBox(height: 24),
+                _buildActionButtons(),
+                const SizedBox(height: 20),
+              ],
             ),
-            child: const Icon(Icons.calendar_today, color: Colors.white),
-          ),
-        ),
-        IconButton(
-          onPressed: _deleteProperty,
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: _isDeleting
-                ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            )
-                : const Icon(Icons.delete, color: Colors.white),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildImageCarousel() {
-    if (_allImages.isEmpty) {
-      return Container(
-        height: 300,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
-        ),
-        child: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.image, size: 64, color: Colors.white54),
-              SizedBox(height: 16),
-              Text(
-                'No images available',
-                style: TextStyle(color: Colors.white54, fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        // Image carousel
-        Container(
-          height: 300,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() => _currentImageIndex = index);
-              },
-              itemCount: _allImages.length,
-              itemBuilder: (context, index) {
-                final imageData = _allImages[index];
-                return Stack(
-                  children: [
-                    // Image
-                    Container(
-                      width: double.infinity,
-                      child: Image.network(
-                        imageData['url'],
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            color: Colors.white.withOpacity(0.1),
-                            child: const Center(
-                              child: CircularProgressIndicator(color: Colors.white),
-                            ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.white.withOpacity(0.1),
-                            child: const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.error, size: 48, color: Colors.white54),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'Failed to load image',
-                                    style: TextStyle(color: Colors.white54),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    // Cover image badge
-                    if (imageData['isCover'] == true)
-                      Positioned(
-                        top: 16,
-                        left: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Cover',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    // Delete button for non-cover images
-                    if (imageData['isCover'] != true && imageData['id'] != null)
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        child: GestureDetector(
-                          onTap: () => _deleteImage(imageData['id'], index),
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.8),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Icon(
-                              Icons.delete,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Image indicators and add button
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Indicators
-            if (_allImages.length > 1)
-              Row(
-                children: List.generate(
-                  _allImages.length,
-                      (index) => Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    width: index == _currentImageIndex ? 12 : 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: index == _currentImageIndex
-                          ? Colors.white
-                          : Colors.white.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(4),
+  Widget _buildImageSlider() {
+    return SliverAppBar(
+      expandedHeight: 300,
+      pinned: true,
+      backgroundColor: Colors.transparent,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.white),
+        onPressed: () => Navigator.pop(context),
+      ),
+      flexibleSpace: FlexibleSpaceBar(
+        background: _allImages.isNotEmpty
+            ? PageView.builder(
+          controller: _pageController,
+          onPageChanged: (index) => setState(() => _currentImageIndex = index),
+          itemCount: _allImages.length,
+          itemBuilder: (context, index) {
+            final image = _allImages[index];
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  image['url'],
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => _buildDefaultImage(),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.5),
+                      ],
                     ),
                   ),
                 ),
-              )
-            else
-              const SizedBox(),
-            // Add image button
-            ElevatedButton.icon(
-              onPressed: _isAddingImage ? null : _addImage,
-              icon: _isAddingImage
-                  ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(Icons.add_photo_alternate),
-              label: Text(_isAddingImage ? 'Adding...' : 'Add Image'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.withOpacity(0.8),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                if (image['isCover'] == true)
+                   Positioned(
+                    top: 60,
+                    right: 16,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Cover',
+                        style: TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        )
+            : _buildDefaultImage(),
+      ),
+    );
+  }
+
+  Widget _buildDefaultImage() {
+    return Container(
+      color: Colors.grey[800],
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.home, size: 80, color: Colors.white54),
+            SizedBox(height: 16),
+            Text(
+              'No Images Available',
+              style: TextStyle(color: Colors.white54, fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPropertyHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _fullPropertyData['houseType'] ?? 'Property',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text(
+              '\$${_fullPropertyData['price'] ?? 0}',
+              style: const TextStyle(
+                color: Colors.green,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: _getStatusColor(_fullPropertyData['status']),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _getStatusText(_fullPropertyData['status']),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            const Icon(Icons.location_on, color: Colors.white70, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${_fullPropertyData['city'] ?? 'Unknown'}, ${_fullPropertyData['region'] ?? 'Unknown'}',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 16,
                 ),
               ),
             ),
@@ -704,23 +444,15 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
                 child: const Icon(Icons.home, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
-              Text(
-                '\$${widget.property['price'] ?? 0}',
-                style: const TextStyle(
+              const Text(
+                'Property Features',
+                style: TextStyle(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${widget.property['city'] ?? 'Unknown'}, ${widget.property['region'] ?? 'Unknown'}',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 16,
-            ),
           ),
           const SizedBox(height: 24),
           Row(
@@ -729,27 +461,27 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
               _buildFeature(
                 Icons.square_foot,
                 'Area',
-                '${widget.property['size'] ?? 0} m²',
+                '${_fullPropertyData['size'] ?? 0} m²',
               ),
               _buildFeature(
                 Icons.king_bed,
                 'Bedrooms',
-                '${widget.property['bedrooms'] ?? 0}',
+                '${_fullPropertyData['bedrooms'] ?? 0}',
               ),
               _buildFeature(
                 Icons.bathtub,
                 'Bathrooms',
-                '${widget.property['bathrooms'] ?? 0}',
+                '${_fullPropertyData['bathrooms'] ?? 0}',
               ),
             ],
           ),
-          if (widget.property['totalRooms'] != null && widget.property['totalRooms'] > 0) ...[
+          if (_fullPropertyData['totalRooms'] != null && _fullPropertyData['totalRooms'] > 0) ...[
             const SizedBox(height: 24),
             Center(
               child: _buildFeature(
                 Icons.room,
                 'Total Rooms',
-                '${widget.property['totalRooms']}',
+                '${_fullPropertyData['totalRooms']}',
               ),
             ),
           ],
@@ -828,12 +560,31 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
             ],
           ),
           const SizedBox(height: 20),
-          _buildInfoRow('Property Type', widget.property['houseType'] ?? 'N/A'),
-          _buildInfoRow('Floor', '${widget.property['floor'] ?? 'N/A'}'),
-          _buildInfoRow('Furnished', (widget.property['isFurnished'] ?? false) ? 'Yes' : 'No'),
-          _buildInfoRow('High Floor', (widget.property['isHighFloor'] ?? false) ? 'Yes' : 'No'),
-          _buildInfoRow('Price per m²', '\$${widget.property['pricePerM2'] ?? 0}'),
-          _buildInfoRow('Status', _getStatusText(widget.property['status'])),
+          _buildInfoRow('Property Type', _fullPropertyData['houseType'] ?? 'N/A'),
+          _buildInfoRow('Floor', '${_fullPropertyData['floor'] ?? 0}'),
+          _buildInfoRow('Furnished', _fullPropertyData['isFurnished'] == true ? 'Yes' : 'No'),
+          _buildInfoRow('High Floor', _fullPropertyData['isHighFloor'] == true ? 'Yes' : 'No'),
+          _buildInfoRow('Status', _getStatusText(_fullPropertyData['status'])),
+          if (_fullPropertyData['description'] != null && _fullPropertyData['description'].toString().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text(
+              'Description',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _fullPropertyData['description'].toString(),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -841,7 +592,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -850,6 +601,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
             style: TextStyle(
               color: Colors.white.withOpacity(0.8),
               fontSize: 14,
+              fontWeight: FontWeight.w500,
             ),
           ),
           Text(
@@ -857,7 +609,7 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
@@ -865,7 +617,92 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
     );
   }
 
-  String _getStatusText(int? status) {
+  Widget _buildImageManagement() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.photo_library, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Image Management',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Images: ${_allImages.length}',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isAddingImage ? null : _addImage,
+                  icon: _isAddingImage
+                      ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                      : const Icon(Icons.add_photo_alternate),
+                  label: Text(_isAddingImage ? 'Adding...' : 'Add Image'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.withOpacity(0.8),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(dynamic status) {
+    switch (status) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.blue;
+      case 2:
+        return Colors.red;
+      case 3:
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusText(dynamic status) {
     switch (status) {
       case 0:
         return 'For Sale';
@@ -889,8 +726,8 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
               final result = await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => AddPropertyScreen(  // FIXED: Use AddPropertyScreen instead
-                    propertyToEdit: widget.property,
+                  builder: (context) => AddPropertyScreen(
+                    propertyToEdit: _fullPropertyData,
                   ),
                 ),
               );
@@ -916,11 +753,13 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
         Expanded(
           child: ElevatedButton.icon(
             onPressed: () {
+              // FIXED: Pass both isSellerView and propertyId for seller viewing requests
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => ViewingRequestsScreen(
-                    propertyId: widget.property['id'],
+                    isSellerView: true,                    // Important: Set to true for seller
+                    propertyId: widget.property['id'],     // Pass specific property ID
                   ),
                 ),
               );
@@ -938,6 +777,26 @@ class _PropertyDetailsScreenSellerState extends State<PropertyDetailsScreenSelle
           ),
         ),
       ],
+    );
+  }
+
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }

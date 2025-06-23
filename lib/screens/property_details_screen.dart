@@ -1,4 +1,4 @@
-// lib/screens/property_details_screen.dart - FIXED WITH IMAGE CAROUSEL
+// lib/screens/property_details_screen.dart - COMPLETE FILE WITH COORDINATE FIX
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -26,7 +26,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
   Map<String, dynamic>? _contactInfo;
   Map<String, dynamic> _fullPropertyData = {};
 
-  // ADDED: Image carousel variables
+  // Image carousel variables
   late PageController _pageController;
   int _currentImageIndex = 0;
   List<Map<String, dynamic>> _allImages = []; // Store images with URLs
@@ -83,7 +83,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     _fadeAnimationController.forward();
   }
 
-  // ADDED: Load complete property details with images
+  // Load complete property details with images
   Future<void> _loadFullPropertyDetails() async {
     setState(() => _isLoadingFullProperty = true);
 
@@ -131,7 +131,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     }
   }
 
-  // ADDED: Load all images method (similar to seller version)
+  // Load all images method
   void _loadAllImages() {
     _allImages.clear();
 
@@ -159,188 +159,250 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
 
     // Load additional images
     final images = _fullPropertyData['Images'] ?? _fullPropertyData['images'] ?? [];
-
-    if (images != null && images is List) {
-      print('📷 Found ${images.length} additional images');
-
-      for (final image in images) {
+    if (images is List) {
+      for (var image in images) {
         String? imageUrl;
-        int? imageId;
 
         if (image is Map) {
-          // Get image ID
-          imageId = image['Id'] ?? image['id'];
-
-          // Get image URL
-          if (image['ImagePath'] != null) {
-            imageUrl = image['ImagePath'].toString();
-          } else if (image['imagePath'] != null) {
-            final imagePath = image['imagePath'].toString();
-            if (ApiConfig.isValidImagePath(imagePath)) {
-              imageUrl = ApiConfig.getImageUrl(imagePath);
-            }
+          // Handle image object format
+          final imagePath = image['imagePath'] ?? image['ImagePath'];
+          if (imagePath != null && ApiConfig.isValidImagePath(imagePath.toString())) {
+            imageUrl = ApiConfig.getImageUrl(imagePath.toString());
+          }
+        } else if (image is String) {
+          // Handle direct string format
+          if (ApiConfig.isValidImagePath(image)) {
+            imageUrl = ApiConfig.getImageUrl(image);
           }
         }
 
         if (imageUrl != null && imageUrl.isNotEmpty) {
           _allImages.add({
-            'id': imageId,
+            'id': image is Map ? image['id'] : null,
             'url': imageUrl,
             'isCover': false,
           });
-          print('➕ Added image with ID $imageId: $imageUrl');
         }
       }
     }
 
-    print('🎯 Final result: Loaded ${_allImages.length} images total');
+    // If no images found, add a placeholder
+    if (_allImages.isEmpty) {
+      _allImages.add({
+        'id': null,
+        'url': 'placeholder',
+        'isCover': true,
+      });
+    }
+
+    print('📸 Total images loaded: ${_allImages.length}');
     setState(() {});
   }
 
-  // FIXED: Enhanced favorite status checking
+  // Check if property is in favorites
   Future<void> _checkIfFavorite() async {
     setState(() => _isCheckingFavorite = true);
 
     try {
       final userId = UserSession.getCurrentUserId();
       if (userId <= 0) {
-        setState(() => _isCheckingFavorite = false);
+        setState(() {
+          _isCheckingFavorite = false;
+          _isSaved = false;
+        });
         return;
       }
 
-      print('🔍 Checking favorite status for property ${widget.property['id']} and user $userId');
-
       final response = await http.get(
-        Uri.parse('${ApiConfig.BASE_URL}/api/favorites/user/$userId?page=1&pageSize=100'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/favorites/user/$userId'),
         headers: ApiConfig.headers,
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
-        print('📋 Favorites response: ${response.body}');
-
-        bool isInFavorites = false;
-
-        if (data is List) {
-          // Direct array format
-          isInFavorites = data.any((item) => item['id'] == widget.property['id']);
-        } else if (data is Map<String, dynamic> && data.containsKey('data')) {
-          // Wrapped format
-          final favorites = data['data'] as List;
-          isInFavorites = favorites.any((fav) {
-            // Check both direct property ID and nested property ID
-            return fav['id'] == widget.property['id'] ||
-                fav['propertyId'] == widget.property['id'] ||
-                (fav['property'] != null && fav['property']['id'] == widget.property['id']);
-          });
-        }
+        List favorites = data is List ? data : (data['data'] ?? []);
 
         setState(() {
-          _isSaved = isInFavorites;
+          _isSaved = favorites.any((fav) =>
+          (fav['propertyId'] ?? fav['id']) == widget.property['id']
+          );
           _isCheckingFavorite = false;
         });
-
-        print('✅ Property ${widget.property['id']} favorite status: $_isSaved');
       } else {
-        print('⚠️ Failed to check favorite status: ${response.statusCode}');
-        setState(() => _isCheckingFavorite = false);
+        setState(() {
+          _isCheckingFavorite = false;
+          _isSaved = false;
+        });
       }
     } catch (e) {
-      print('❌ Error checking favorite status: $e');
-      setState(() => _isCheckingFavorite = false);
+      print('Error checking favorite status: $e');
+      setState(() {
+        _isCheckingFavorite = false;
+        _isSaved = false;
+      });
     }
   }
 
-  // ENHANCED: Favorites toggle with animations
+  // Toggle favorite status
   Future<void> _toggleFavorite() async {
     if (_isTogglingFavorite) return;
+
+    final userId = UserSession.getCurrentUserId();
+    if (userId <= 0) {
+      _showErrorMessage('Please log in to save favorites');
+      return;
+    }
 
     setState(() => _isTogglingFavorite = true);
 
     try {
-      final userId = UserSession.getCurrentUserId();
-      final propertyId = widget.property['id'];
+      if (_isSaved) {
+        // Remove from favorites
+        final response = await http.delete(
+          Uri.parse('${ApiConfig.BASE_URL}/api/favorites'),
+          headers: ApiConfig.headers,
+          body: json.encode({
+            'userId': userId,
+            'propertyId': widget.property['id'],
+          }),
+        );
 
-      final uri = Uri.parse('${ApiConfig.BASE_URL}/api/favorites/toggle').replace(
-        queryParameters: {
-          'userId': userId.toString(),
-          'propertyId': propertyId.toString(),
-        },
-      );
-
-      print('💖 Toggling favorite: $uri');
-
-      final response = await http.post(uri, headers: ApiConfig.headers);
-
-      print('📡 Favorites toggle response: ${response.statusCode}');
-      print('📋 Favorites toggle body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final newFavoriteStatus = !_isSaved;
-        setState(() {
-          _isSaved = newFavoriteStatus;
-        });
-
-        // Trigger animation
-        _favoriteAnimationController.forward().then((_) {
+        if (response.statusCode == 200) {
+          setState(() => _isSaved = false);
           _favoriteAnimationController.reverse();
-        });
-
-        _showSuccessMessage(_isSaved ? '❤️ Added to favorites!' : '💔 Removed from favorites');
+          _showSuccessMessage('Removed from favorites');
+        }
       } else {
-        _showErrorMessage('Failed to update favorites');
+        // Add to favorites
+        final response = await http.post(
+          Uri.parse('${ApiConfig.BASE_URL}/api/favorites'),
+          headers: ApiConfig.headers,
+          body: json.encode({
+            'userId': userId,
+            'propertyId': widget.property['id'],
+          }),
+        );
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          setState(() => _isSaved = true);
+          _favoriteAnimationController.forward();
+          _showSuccessMessage('Added to favorites');
+        }
       }
     } catch (e) {
-      _showErrorMessage('Error updating favorites: $e');
+      print('Error toggling favorite: $e');
+      _showErrorMessage('Failed to update favorites');
     } finally {
       setState(() => _isTogglingFavorite = false);
     }
   }
 
-  // ENHANCED: Viewing request creation with better UX
-  Future<void> _createViewingRequest() async {
-    final selectedDateTime = await _showDateTimePicker();
-    if (selectedDateTime == null) return;
+  // FIXED: Open location on map using coordinates first, then region fallback
+  void _openLocationOnMap() async {
+    try {
+      // Check if we have latitude and longitude coordinates first
+      final latitude = widget.property['latitude'];
+      final longitude = widget.property['longitude'];
 
-    final propertyId = widget.property['id'];
-    final userId = UserSession.getCurrentUserId();
+      String googleMapsUrl;
 
-    if (propertyId == null || userId <= 0) {
-      _showErrorMessage('Unable to create viewing request');
-      return;
+      if (latitude != null && longitude != null &&
+          latitude != 0 && longitude != 0) {
+        // Use precise coordinates if available
+        googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
+        print('Opening map with coordinates: $latitude, $longitude');
+      } else {
+        // Fallback to region-based search only if coordinates are not available
+        final city = widget.property['city'] ?? '';
+        final region = widget.property['region'] ?? '';
+        final address = widget.property['address'] ?? '';
+
+        // Create search query for the location
+        String locationQuery = '';
+        if (address.isNotEmpty) {
+          locationQuery = address;
+        } else if (city.isNotEmpty && region.isNotEmpty) {
+          locationQuery = '$city, $region';
+        } else if (city.isNotEmpty) {
+          locationQuery = city;
+        } else {
+          _showErrorMessage('Location information not available');
+          return;
+        }
+
+        // Encode the query for URL
+        final encodedQuery = Uri.encodeComponent(locationQuery);
+        googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$encodedQuery';
+        print('Opening map with location search: $locationQuery');
+      }
+
+      if (await canLaunchUrl(Uri.parse(googleMapsUrl))) {
+        await launchUrl(
+          Uri.parse(googleMapsUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        // Enhanced fallback with coordinates if available
+        String fallbackUrl;
+        if (latitude != null && longitude != null &&
+            latitude != 0 && longitude != 0) {
+          fallbackUrl = 'https://maps.google.com/?q=$latitude,$longitude';
+        } else {
+          final city = widget.property['city'] ?? '';
+          final region = widget.property['region'] ?? '';
+          final locationQuery = city.isNotEmpty && region.isNotEmpty
+              ? '$city, $region'
+              : city.isNotEmpty ? city : region;
+          final encodedQuery = Uri.encodeComponent(locationQuery);
+          fallbackUrl = 'https://maps.google.com/?q=$encodedQuery';
+        }
+
+        if (await canLaunchUrl(Uri.parse(fallbackUrl))) {
+          await launchUrl(
+            Uri.parse(fallbackUrl),
+            mode: LaunchMode.externalApplication,
+          );
+        } else {
+          _showErrorMessage('Unable to open maps application');
+        }
+      }
+    } catch (e) {
+      print('Error opening map: $e');
+      _showErrorMessage('Error opening map: ${e.toString()}');
     }
+  }
 
+  // Create viewing request
+  Future<void> _createViewingRequest(DateTime dateTime) async {
     setState(() => _isCreatingViewingRequest = true);
 
     try {
-      final requestBody = {
-        'propertyId': propertyId,
-        'userId': userId,
-        'requestedDateTime': selectedDateTime.toUtc().toIso8601String(),
-        'message': 'Viewing request for ${widget.property['houseType']} in ${widget.property['city']}',
-      };
-
-      print('📅 Creating viewing request: $requestBody');
+      final userId = UserSession.getCurrentUserId();
+      if (userId <= 0) {
+        _showErrorMessage('Please log in to request a viewing');
+        return;
+      }
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests/create'),
+        Uri.parse('${ApiConfig.BASE_URL}/api/viewing-requests'),
         headers: ApiConfig.headers,
-        body: json.encode(requestBody),
+        body: json.encode({
+          'PropertyId': widget.property['id'],
+          'BuyerId': userId,
+          'RequestedDateTime': dateTime.toIso8601String(),
+          'Status': 0, // Pending
+        }),
       );
-
-      print('📡 Viewing request response: ${response.statusCode}');
-      print('📋 Viewing request body: ${response.body}');
 
       setState(() => _isCreatingViewingRequest = false);
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        _showSuccessDialog(
-          '✅ Viewing Scheduled!',
-          'Your viewing request has been sent for ${_formatDateTime(selectedDateTime)}. The seller will contact you soon.',
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        Navigator.pop(context);
+        _showSuccessMessage(
+          'Viewing request sent!',
+          'Your viewing request has been sent for ${_formatDateTime(dateTime)}. The seller will contact you soon.',
         );
       } else if (response.statusCode == 400) {
         try {
@@ -360,7 +422,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     }
   }
 
-  // Enhanced contact information retrieval
+  // Get seller contact information
   Future<void> _getSellerContact() async {
     final propertyId = widget.property['id'];
     if (propertyId == null) {
@@ -404,7 +466,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     }
   }
 
-  // Enhanced date/time picker
+  // Show date/time picker for viewing request
   Future<DateTime?> _showDateTimePicker() async {
     final DateTime? selectedDate = await showDatePicker(
       context: context,
@@ -460,1035 +522,396 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
     );
   }
 
+  // Format date time for display
   String _formatDateTime(DateTime dateTime) {
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
+    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+    final dayName = days[dateTime.weekday - 1];
     final month = months[dateTime.month - 1];
-    final day = dateTime.day.toString().padLeft(2, '0');
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
 
-    return '$month $day at $hour:$minute';
+    return '$dayName, $month ${dateTime.day} at $hour:$minute';
   }
 
+  // Show contact dialog
   void _showContactDialog(Map<String, dynamic> contactData) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF234E70),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.contacts, color: Colors.white),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Seller Contact Information',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Seller Contact Information',
+          style: TextStyle(color: Colors.white, fontSize: 18),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Choose how you\'d like to contact the seller:',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            if (contactData['sellerPhoneNumber'] != null) ...[
-              _buildContactOption(
-                Icons.phone,
-                'Call Seller',
-                contactData['sellerPhoneNumber'].toString(),
-                onTap: () => _initiateCall(contactData['sellerPhoneNumber'].toString()),
-              ),
-              const SizedBox(height: 16),
-            ],
-            if (contactData['sellerEmail'] != null) ...[
-              _buildContactOption(
-                Icons.email,
-                'Send Email',
-                contactData['sellerEmail'].toString(),
-                onTap: () => _initiateEmail(contactData['sellerEmail'].toString()),
-              ),
-            ],
-            if (contactData['sellerPhoneNumber'] == null && contactData['sellerEmail'] == null)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.orange, size: 20),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'No contact information available for this property.',
-                        style: TextStyle(
-                          color: Colors.orange,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            _buildContactItem(Icons.person, 'Name', contactData['name'] ?? 'N/A'),
+            const SizedBox(height: 12),
+            _buildContactItem(Icons.email, 'Email', contactData['email'] ?? 'N/A'),
+            const SizedBox(height: 12),
+            _buildContactItem(Icons.phone, 'Phone', contactData['phone'] ?? 'N/A'),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Close',
-              style: TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            child: const Text('Close', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildContactOption(IconData icon, String title, String value, {VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white.withOpacity(0.15),
-              Colors.white.withOpacity(0.05),
+  Widget _buildContactItem(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white.withOpacity(0.8), size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
         ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.touch_app,
-                color: Colors.green,
-                size: 18,
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
-  void _initiateCall(String phoneNumber) async {
-    try {
-      Navigator.pop(context); // Close the dialog first
-
-      // Clean the phone number (remove spaces, dashes, etc.)
-      final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-      final telUrl = 'tel:$cleanNumber';
-
-      if (await canLaunchUrl(Uri.parse(telUrl))) {
-        await launchUrl(
-          Uri.parse(telUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        _showErrorMessage('Unable to make phone call. Please dial $phoneNumber manually.');
-      }
-    } catch (e) {
-      print('Error making phone call: $e');
-      _showErrorMessage('Error making phone call: ${e.toString()}');
-    }
-  }
-
-  void _initiateEmail(String email) async {
-    try {
-      Navigator.pop(context); // Close the dialog first
-
-      final subject = Uri.encodeComponent('Inquiry about Property ID: ${widget.property['id']}');
-      final body = Uri.encodeComponent('Hello,\n\nI am interested in your property (ID: ${widget.property['id']}) - ${widget.property['houseType']} in ${widget.property['city']}.\n\nPlease let me know more details.\n\nThank you.');
-
-      final emailUrl = 'mailto:$email?subject=$subject&body=$body';
-
-      if (await canLaunchUrl(Uri.parse(emailUrl))) {
-        await launchUrl(
-          Uri.parse(emailUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        _showErrorMessage('Unable to open email app. Please email $email manually.');
-      }
-    } catch (e) {
-      print('Error opening email: $e');
-      _showErrorMessage('Error opening email: ${e.toString()}');
-    }
-  }
-
-  void _showErrorMessage(String message) {
+  // Show success message
+  void _showSuccessMessage(String title, [String? message]) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  void _showSuccessMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_outline, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (message != null) Text(message),
           ],
         ),
         backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  void _showSuccessDialog(String title, String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF234E70),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.check_circle, color: Colors.green),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(color: Colors.white, fontSize: 18),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(color: Colors.white70, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Colors.green)),
-          ),
-        ],
+  // Show error message
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
       ),
-    );
-  }
-
-  String _getStatusText(dynamic status) {
-    if (status == 0 || status == 'Available') return 'Available';
-    if (status == 1 || status == 'NotAvailable') return 'Not Available';
-    return 'Unknown';
-  }
-
-  Color _getStatusColor(dynamic status) {
-    if (status == 0 || status == 'Available') return Colors.green;
-    if (status == 1 || status == 'NotAvailable') return Colors.red;
-    return Colors.grey;
-  }
-
-  // ADDED: Image carousel builder (similar to seller version)
-  Widget _buildImageCarousel() {
-    if (_allImages.isEmpty) {
-      return Container(
-        height: 320,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.image, size: 64, color: Colors.white54),
-              SizedBox(height: 16),
-              Text(
-                'No images available',
-                style: TextStyle(color: Colors.white54, fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        // Image carousel
-        Container(
-          height: 320,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() => _currentImageIndex = index);
-              },
-              itemCount: _allImages.length,
-              itemBuilder: (context, index) {
-                final imageData = _allImages[index];
-                return Stack(
-                  children: [
-                    // Image
-                    Container(
-                      width: double.infinity,
-                      child: Image.network(
-                        imageData['url'],
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            color: Colors.white.withOpacity(0.1),
-                            child: const Center(
-                              child: CircularProgressIndicator(color: Colors.white),
-                            ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.white.withOpacity(0.1),
-                            child: const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.error, size: 48, color: Colors.white54),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'Failed to load image',
-                                    style: TextStyle(color: Colors.white54),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    // Cover image badge
-                    if (imageData['isCover'] == true)
-                      Positioned(
-                        top: 16,
-                        left: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Cover',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    // Image counter
-                    Positioned(
-                      top: 16,
-                      right: 16,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${index + 1} / ${_allImages.length}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Image indicators
-        if (_allImages.length > 1)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              _allImages.length,
-                  (index) => Container(
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                width: index == _currentImageIndex ? 12 : 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: index == _currentImageIndex
-                      ? Colors.white
-                      : Colors.white.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Stack(
-          children: [
-            // Background gradient
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF1a237e),
-                    Color(0xFF234E70),
-                    Color(0xFF305F80),
-                  ],
-                  stops: [0.2, 0.6, 0.9],
-                ),
-              ),
-            ),
-
-            // FIXED: Show loading state while loading full property details
-            if (_isLoadingFullProperty)
-              const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 16),
-                    Text(
-                      'Loading property details...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1a237e),
+              Color(0xFF234E70),
+              Color(0xFF305F80),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Column(
+              children: [
+                _buildHeader(),
+                Expanded(
+                  child: _isLoadingFullProperty
+                      ? const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  )
+                      : SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildImageCarousel(),
+                        const SizedBox(height: 24),
+                        _buildPropertyHeader(),
+                        const SizedBox(height: 24),
+                        _buildPropertyFeatures(),
+                        const SizedBox(height: 24),
+                        _buildPropertyInfo(),
+                        const SizedBox(height: 24),
+                        _buildLocationInfo(),
+                        const SizedBox(height: 100),
+                      ],
                     ),
-                  ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      floatingActionButton: _buildActionButtons(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+          ),
+          const Spacer(),
+          ScaleTransition(
+            scale: _favoriteScaleAnimation,
+            child: IconButton(
+              onPressed: _isTogglingFavorite ? null : _toggleFavorite,
+              icon: _isCheckingFavorite
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
                 ),
               )
-            else
-              CustomScrollView(
-                slivers: [
-                  // Enhanced App Bar with favorite toggle
-                  SliverAppBar(
-                    expandedHeight: 80,
-                    pinned: true,
-                    backgroundColor: Colors.transparent,
-                    leading: Container(
-                      margin: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-                    actions: [
-                      Container(
-                        margin: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.black.withOpacity(0.4),
-                              Colors.black.withOpacity(0.2),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.3),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: _isCheckingFavorite
-                            ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          ),
-                        )
-                            : IconButton(
-                          icon: AnimatedBuilder(
-                            animation: _favoriteScaleAnimation,
-                            builder: (context, child) {
-                              return Transform.scale(
-                                scale: _favoriteScaleAnimation.value,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: _isSaved
-                                        ? Colors.red.withOpacity(0.2)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(
-                                    _isSaved ? Icons.favorite : Icons.favorite_border,
-                                    color: _isSaved ? Colors.red : Colors.white,
-                                    size: 26,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                          onPressed: _isTogglingFavorite ? null : _toggleFavorite,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Property details with enhanced design
-                  SliverToBoxAdapter(
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0xFF1a237e),
-                            Color(0xFF234E70),
-                            Color(0xFF305F80),
-                          ],
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // FIXED: Use image carousel instead of single image
-                            _buildImageCarousel(),
-                            const SizedBox(height: 24),
-                            _buildPropertyHeader(),
-                            const SizedBox(height: 24),
-                            _buildLocationSection(),
-                            const SizedBox(height: 24),
-                            _buildPropertyFeatures(),
-                            const SizedBox(height: 24),
-                            _buildPropertyInfo(),
-                            const SizedBox(height: 32),
-                            _buildActionButtons(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  : Icon(
+                _isSaved ? Icons.favorite : Icons.favorite_border,
+                color: _isSaved ? Colors.red : Colors.white,
+                size: 28,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageCarousel() {
+    return Container(
+      height: 300,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() => _currentImageIndex = index);
+              },
+              itemCount: _allImages.length,
+              itemBuilder: (context, index) {
+                final image = _allImages[index];
+                return _buildImageWidget(image['url']);
+              },
+            ),
+            if (_allImages.length > 1) ...[
+              // Image indicators
+              Positioned(
+                bottom: 16,
+                left: 0,
+                right: 0,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(_allImages.length, (index) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: index == _currentImageIndex
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.5),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              // Navigation arrows
+              Positioned(
+                left: 16,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    onPressed: () {
+                      if (_currentImageIndex > 0) {
+                        _pageController.previousPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    },
+                    icon: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_back_ios,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 16,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    onPressed: () {
+                      if (_currentImageIndex < _allImages.length - 1) {
+                        _pageController.nextPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    },
+                    icon: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_forward_ios,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  Widget _buildImageWidget(String imageUrl) {
+    if (imageUrl == 'placeholder') {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Icon(Icons.home, size: 80, color: Colors.grey),
+        ),
+      );
+    }
+
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        print('Error loading image: $imageUrl - $error');
+        return Container(
+          color: Colors.grey[300],
+          child: const Center(
+            child: Icon(Icons.error, size: 50, color: Colors.grey),
+          ),
+        );
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[200],
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildPropertyHeader() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.property['houseType'] ?? 'Property',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.property['houseType'] ?? 'Property',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'ID: ${widget.property['id']}',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Icon(
+              Icons.attach_money,
+              color: Colors.white.withOpacity(0.9),
+              size: 24,
+            ),
+            Text(
+              '\$${widget.property['price'] ?? 0}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(widget.property['status']).withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: _getStatusColor(widget.property['status']).withOpacity(0.5),
-                      ),
-                    ),
-                    child: Text(
-                      _getStatusText(widget.property['status']),
-                      style: TextStyle(
-                        color: _getStatusColor(widget.property['status']),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '${widget.property['price'] ?? 0} LE',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (widget.property['pricePerM2'] != null && widget.property['pricePerM2'] > 0)
-                    Text(
-                      '${widget.property['pricePerM2']} LE/m²',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 14,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(
-                Icons.location_on,
-                color: Colors.white.withOpacity(0.8),
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${widget.property['city'] ?? ''}, ${widget.property['region'] ?? ''}',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (widget.property['isHighFloor'] == true) ...[
-            const SizedBox(height: 12),
+            ),
+            const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.2),
+                color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blue.withOpacity(0.3)),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.height,
-                    color: Colors.blue.withOpacity(0.8),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'High Floor Property',
-                    style: TextStyle(
-                      color: Colors.blue.withOpacity(0.9),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+              child: Text(
+                '\$${widget.property['pricePerM2'] ?? 0}/m²',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
-        ],
-      ),
+        ),
+      ],
     );
-  }
-
-  Widget _buildLocationSection() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.location_on, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Location',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.location_city,
-                      color: Colors.white.withOpacity(0.8),
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'City',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      widget.property['city'] ?? 'N/A',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.map,
-                      color: Colors.white.withOpacity(0.8),
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Region',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      widget.property['region'] ?? 'N/A',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                if (widget.property['address'] != null) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.home,
-                        color: Colors.white.withOpacity(0.8),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Address',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const Spacer(),
-                      Expanded(
-                        flex: 2,
-                        child: Text(
-                          widget.property['address'].toString(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.end,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Location Button
-          InkWell(
-            onTap: _openLocationOnMap,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.blue.withOpacity(0.3),
-                    Colors.purple.withOpacity(0.3),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.withOpacity(0.4)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.map,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'View Location on Map',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.arrow_forward_ios,
-                    color: Colors.white,
-                    size: 14,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openLocationOnMap() async {
-    try {
-      final city = widget.property['city'] ?? '';
-      final region = widget.property['region'] ?? '';
-      final address = widget.property['address'] ?? '';
-
-      // Create search query for the location
-      String locationQuery = '';
-      if (address.isNotEmpty) {
-        locationQuery = address;
-      } else if (city.isNotEmpty && region.isNotEmpty) {
-        locationQuery = '$city, $region';
-      } else if (city.isNotEmpty) {
-        locationQuery = city;
-      } else {
-        _showErrorMessage('Location information not available');
-        return;
-      }
-
-      // Encode the query for URL
-      final encodedQuery = Uri.encodeComponent(locationQuery);
-
-      // Try to open Google Maps first
-      final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$encodedQuery';
-
-      if (await canLaunchUrl(Uri.parse(googleMapsUrl))) {
-        await launchUrl(
-          Uri.parse(googleMapsUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        // Fallback to basic maps URL
-        final fallbackUrl = 'https://maps.google.com/?q=$encodedQuery';
-        if (await canLaunchUrl(Uri.parse(fallbackUrl))) {
-          await launchUrl(
-            Uri.parse(fallbackUrl),
-            mode: LaunchMode.externalApplication,
-          );
-        } else {
-          _showErrorMessage('Unable to open maps application');
-        }
-      }
-    } catch (e) {
-      print('Error opening map: $e');
-      _showErrorMessage('Error opening map: ${e.toString()}');
-    }
   }
 
   Widget _buildPropertyFeatures() {
@@ -1537,26 +960,14 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
                 child: _buildFeatureCard(
                   Icons.straighten,
                   '${widget.property['size'] ?? 0} m²',
-                  const Color(0xFFFF8C00), // Orange
+                  const Color(0xFF32CD32), // Green
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildFeatureCard(
-                  Icons.single_bed,
+                  Icons.king_bed,
                   '${widget.property['bedrooms'] ?? 0}',
-                  const Color(0xFF32CD32), // Green
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildFeatureCard(
-                  Icons.bathtub_outlined,
-                  '${widget.property['bathrooms'] ?? 0}',
                   const Color(0xFF1E90FF), // Blue
                 ),
               ),
@@ -1652,7 +1063,8 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
           _buildInfoRow('Floor', '${widget.property['floor'] ?? 0}'),
           _buildInfoRow('Furnished', widget.property['isFurnished'] == true ? 'Yes' : 'No'),
           _buildInfoRow('High Floor', widget.property['isHighFloor'] == true ? 'Yes' : 'No'),
-          _buildInfoRow('Status', _getStatusText(widget.property['status'])),
+          _buildInfoRow('Bathrooms', '${widget.property['bathrooms'] ?? 0}'),
+          _buildInfoRow('Total Rooms', '${widget.property['totalRooms'] ?? 0}'),
         ],
       ),
     );
@@ -1660,7 +1072,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -1669,7 +1081,6 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
             style: TextStyle(
               color: Colors.white.withOpacity(0.8),
               fontSize: 14,
-              fontWeight: FontWeight.w500,
             ),
           ),
           Text(
@@ -1677,7 +1088,179 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationInfo() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Location',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Icon(
+                Icons.location_city,
+                color: Colors.white.withOpacity(0.8),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'City',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                widget.property['city'] ?? 'N/A',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.map,
+                color: Colors.white.withOpacity(0.8),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Region',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                widget.property['region'] ?? 'N/A',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          if (widget.property['address'] != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.home,
+                  color: Colors.white.withOpacity(0.8),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Address',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const Spacer(),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    widget.property['address'].toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.end,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          // Location Button
+          InkWell(
+            onTap: _openLocationOnMap,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.blue.withOpacity(0.3),
+                    Colors.purple.withOpacity(0.3),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withOpacity(0.4)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.map,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'View Location on Map',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.white,
+                    size: 14,
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1686,74 +1269,77 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> with Tick
   }
 
   Widget _buildActionButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildActionButton(
-            'Schedule Viewing',
-            Icons.calendar_today,
-            _isCreatingViewingRequest ? null : _createViewingRequest,
-            isLoading: _isCreatingViewingRequest,
-            color: Colors.blue,
+    return Container(
+      margin: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _isLoadingContact ? null : _getSellerContact,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: _isLoadingContact
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.phone, color: Colors.white),
+              label: Text(
+                _isLoadingContact ? 'Loading...' : 'Contact Seller',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildActionButton(
-            'Contact Seller',
-            Icons.message,
-            _isLoadingContact ? null : _getSellerContact,
-            isLoading: _isLoadingContact,
-            color: Colors.green,
+          const SizedBox(width: 16),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _isCreatingViewingRequest
+                  ? null
+                  : () async {
+                final dateTime = await _showDateTimePicker();
+                if (dateTime != null) {
+                  _createViewingRequest(dateTime);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF234E70),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: _isCreatingViewingRequest
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.calendar_today, color: Colors.white),
+              label: Text(
+                _isCreatingViewingRequest ? 'Requesting...' : 'Schedule Viewing',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButton(
-      String label,
-      IconData icon,
-      VoidCallback? onTap, {
-        bool isLoading = false,
-        Color color = Colors.white,
-        bool isPrimary = false,
-      }) {
-    return ElevatedButton.icon(
-      onPressed: onTap,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isPrimary ? color.withOpacity(0.2) : Colors.white.withOpacity(0.15),
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        side: BorderSide(
-          color: isPrimary ? color.withOpacity(0.5) : Colors.white.withOpacity(0.3),
-        ),
-      ),
-      icon: isLoading
-          ? SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(
-            isPrimary ? color : Colors.white,
-          ),
-        ),
-      )
-          : Icon(
-        icon,
-        color: isPrimary ? color : Colors.white,
-        size: 20,
-      ),
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isPrimary ? color : Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-        ),
+        ],
       ),
     );
   }
